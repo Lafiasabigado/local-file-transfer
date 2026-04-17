@@ -188,12 +188,14 @@ function setupSocketListeners(sock) {
     });
 }
 
+let API_BASE = window.location.origin;
+
 function connectToServer(serverIP) {
     return new Promise((resolve, reject) => {
         if (socket) { socket.off(); socket.disconnect(); socket = null; }
 
-        const url = serverIP ? `http://${serverIP}:3000` : window.location.origin;
-        const s = io(url, { timeout: 5000, reconnection: false });
+        API_BASE = serverIP ? `http://${serverIP}:3000` : window.location.origin;
+        const s = io(API_BASE, { timeout: 5000, reconnection: false });
 
         s.on('connect', () => { socket = s; setupSocketListeners(s); resolve(s); });
         s.on('connect_error', (err) => reject(err));
@@ -222,6 +224,7 @@ async function handleSignal(data) {
 
         } else if (isSender && data.type === 'request-key') {
             if (aesMasterKeyStr === 'NO-CRYPTO' || data.pubKey === "no-pub" || !Crypto.isSupported()) {
+                aesMasterKeyStr = 'NO-CRYPTO';
                 socket.emit('signal', { code: currentSessionCode, type: 'ecdh-offer',
                     pubKey: "no-pub", encMasterKey: "NO-CRYPTO" });
                 return;
@@ -468,7 +471,7 @@ async function downloadFile(fileId, fileName, fileSize) {
     // If NO encryption is used, we can just trigger native high-speed browser download
     if (aesMasterKeyStr === 'NO-CRYPTO' || !Crypto.isSupported()) {
         const a = Object.assign(document.createElement('a'), { 
-            href: `/api/download/${currentSessionCode}/${fileId}`, 
+            href: `${API_BASE}/api/download/${currentSessionCode}/${fileId}`, 
             download: fileName 
         });
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -480,7 +483,7 @@ async function downloadFile(fileId, fileName, fileSize) {
     // E2E Encrypted download
     if (btn) btn.textContent = 'Downloading…';
     try {
-        const res = await fetch(`/api/download/${currentSessionCode}/${fileId}`);
+        const res = await fetch(`${API_BASE}/api/download/${currentSessionCode}/${fileId}`);
         const enc = await (await res.blob()).arrayBuffer();
         
         const key = await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr));
