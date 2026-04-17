@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const UPLOADS_DIR = path.join(os.tmpdir(), 'localshare-uploads');
 const FILE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // Helper: Get local IP address
