@@ -31,9 +31,11 @@
     "directories": {
       "output": "dist"
     },
+    "afterPack": "./afterPack.js",
     "files": [
       "main.js",
       "server.js",
+      "afterPack.js",
       "public/**/*",
       "package.json"
     ],
