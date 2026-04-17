@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LocalShare Mobile</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { 
+            height: 100vh; margin: 0; padding: 0; 
+            overflow: hidden; /* Avoid weird android scrolls */
+        }
+        .main-container {
+            width: 100%; height: 100%;
+            display: flex; flex-direction: column;
+            border-radius: 0; border: none;
+            padding: 40px 24px;
+        }
+        .hero { text-align: center; margin-bottom: 40px; }
+        .hero h1 { font-size: 32px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.5px; }
+        .hero p { font-size: 14px; color: var(--text-secondary); }
+        .form-section { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 400px; width: 100%; margin: 0 auto; }
+    </style>
+</head>
+<body>
+
+    <div class="glass-panel main-container">
+        
+        <div class="hero">
+            <h1>LocalShare</h1>
+            <p>Connect to the desktop server below</p>
+        </div>
+
+        <div class="form-section">
+            <div class="receive-form">
+                <h3>Connect to PC</h3>
+                <p class="receive-subtitle">Please inspect the sender's PC screen to find the IP Address</p>
+
+                <div class="input-group">
+                    <span class="input-label">SENDER'S IP ADDRESS</span>
+                    <input type="text" id="ip-input" placeholder="192.168.1.X" autocomplete="off" autocorrect="off" autocapitalize="none">
+                </div>
+
+                <button id="btn-submit" class="primary-btn">
+                    <h2>Connect →</h2>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        document.getElementById('btn-submit').addEventListener('click', function() {
+            var ip = document.getElementById('ip-input').value.trim();
+            if(!ip) {
+                alert('Please enter a valid IP address.');
+                return;
+            }
+            if(window.Android) {
+                document.getElementById('btn-submit').querySelector('h2').textContent = 'Connecting...';
+                window.Android.connect(ip);
+            } else {
+                alert('This feature only works inside the LocalShare Android App');
+            }
+        });
+    </script>
+</body>
+</html>
