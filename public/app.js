@@ -17,12 +17,9 @@ const btnReceive = document.getElementById('btn-choice-receive');
 const btnConnect = document.getElementById('btn-connect');
 const btnHistory = document.getElementById('btn-history');
 const btnTheme   = document.getElementById('btn-theme');
-const btnScanQR  = document.getElementById('btn-scan-qr');
-const btnCloseScanner = document.getElementById('btn-close-scanner');
+const btnLang    = document.getElementById('btn-lang');
 const dropZone   = document.getElementById('drop-zone');
 const fileInput  = document.getElementById('file-input');
-const qrModal    = document.getElementById('qr-modal');
-const qrVideo    = document.getElementById('qr-video');
 
 // ─── DARK MODE ───
 (function initTheme() {
@@ -50,8 +47,46 @@ let currentSessionCode = null;
 let aesMasterKeyStr    = null; // "NO-CRYPTO" if not supported
 let isSender           = false;
 let sessionFiles       = [];
-let scannerStream      = null;
-let scannerInterval    = null;
+
+// ─── LOCALIZATION (FR/EN) ───
+const i18n = {
+    EN: {
+        send_title: "Send Files", send_desc: "Share with devices on this Wi-Fi",
+        recv_title: "Receive Files", recv_desc: "Enter a code",
+        your_pin: "YOUR PIN CODE", scan_to_connect: "SCAN TO CONNECT",
+        drop_title: "Drop files here", drop_desc: "or click to browse",
+        connect_title: "Connect to Sender", connect_desc: "Enter the sender's IP address and the PIN shown on their screen",
+        sender_ip: "SENDER'S IP ADDRESS", digit_pin: "6-DIGIT PIN CODE",
+        connect_btn: "Connect", connected_status: "Connected to Session",
+        cancel_back: "← Cancel & Back", history_title: "Transfer History"
+    },
+    FR: {
+        send_title: "Envoyer config", send_desc: "Partager sur ce Wi-Fi",
+        recv_title: "Recevoir Fichiers", recv_desc: "Saisir le code",
+        your_pin: "VOTRE CODE PIN", scan_to_connect: "SCANNEZ POUR REJOINDRE",
+        drop_title: "Déposez vos fichiers", drop_desc: "ou cliquez pour parcourir",
+        connect_title: "Se connecter", connect_desc: "Entrez l'IP de l'expéditeur et son code PIN",
+        sender_ip: "ADRESSE IP EXPÉDITEUR", digit_pin: "CODE PIN À 6 CHIFFRES",
+        connect_btn: "Connexion", connected_status: "Connecté à la session",
+        cancel_back: "← Retour", history_title: "Historique"
+    }
+};
+
+let currentLang = localStorage.getItem('lang') || 'EN';
+document.getElementById('lang-text').innerText = currentLang;
+
+function setLanguage(lang) {
+    currentLang = lang;
+    localStorage.setItem('lang', lang);
+    document.getElementById('lang-text').innerText = lang;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (i18n[lang][key]) el.textContent = i18n[lang][key];
+    });
+}
+setLanguage(currentLang);
+
+btnLang.addEventListener('click', () => setLanguage(currentLang === 'EN' ? 'FR' : 'EN'));
 
 // ─── CRYPTO ───
 const Crypto = {
@@ -142,6 +177,18 @@ function setupSocketListeners(sock) {
         renderFileList();
     });
     sock.on('signal', handleSignal);
+    
+    // When a receiver joins, update the sender's UI to indicate connection
+    sock.on('peer-joined', () => {
+        if (isSender) {
+            document.querySelector('.session-info').style.display = 'none';
+            document.querySelector('#drop-zone h3').textContent = currentLang === 'EN' ? 'Peer connected! Drop files' : 'Appareil connecté! Déposez vos fichiers';
+            document.getElementById('drop-zone').classList.add('active-peer');
+            // Clean up the QR canvas to save memory
+            const canvas = document.getElementById('qr-canvas');
+            if (canvas) canvas.getContext('2d').clearRect(0,0, canvas.width, canvas.height);
+        }
+    });
 }
 
 function connectToServer(serverIP) {
@@ -344,86 +391,6 @@ function showStatus(msg, type) {
 function clearStatus() {
     const el = document.getElementById('status-msg');
     if (el) el.remove();
-}
-
-// ─── QR SCANNER (in-app camera) ───
-btnScanQR.addEventListener('click', openScanner);
-btnCloseScanner.addEventListener('click', closeScanner);
-
-async function openScanner() {
-    qrModal.classList.remove('hidden');
-    try {
-        scannerStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:720} }
-        });
-        qrVideo.srcObject = scannerStream;
-        qrVideo.play();
-        startScanLoop();
-    } catch(err) {
-        closeScanner();
-        if (err.name === 'NotAllowedError') {
-            alert('📷 Camera permission denied.\n\nPlease allow camera access:\nSettings > App > LocalShare > Camera → Allow');
-        } else {
-            alert('Cannot access camera: ' + err.message);
-        }
-    }
-}
-
-function closeScanner() {
-    clearInterval(scannerInterval); scannerInterval = null;
-    if (scannerStream) { scannerStream.getTracks().forEach(t=>t.stop()); scannerStream=null; }
-    qrVideo.srcObject = null;
-    qrModal.classList.add('hidden');
-}
-
-function startScanLoop() {
-    if (!('BarcodeDetector' in window)) {
-        document.querySelector('.scanner-hint').textContent =
-            '⚠️ Scan automatique non supporté. Tapez manuellement l\'IP et le PIN.';
-        return;
-    }
-    const detector = new BarcodeDetector({ formats: ['qr_code'] });
-    const offscreen = document.createElement('canvas');
-    const ctx = offscreen.getContext('2d');
-
-    scannerInterval = setInterval(async () => {
-        if (qrVideo.readyState < 2 || qrVideo.videoWidth === 0) return;
-        offscreen.width = qrVideo.videoWidth;
-        offscreen.height = qrVideo.videoHeight;
-        ctx.drawImage(qrVideo, 0, 0);
-        try {
-            const codes = await detector.detect(offscreen);
-            if (codes.length > 0) handleQRResult(codes[0].rawValue);
-        } catch{}
-    }, 250);
-}
-
-function handleQRResult(raw) {
-    closeScanner();
-    try {
-        const url = new URL(raw);
-        const hash = new URLSearchParams(url.hash.slice(1));
-        const session = hash.get('session'), key = hash.get('key'), ip = hash.get('ip') || url.hostname;
-
-        if (!session || !key || !ip) throw new Error('Missing params');
-
-        isSender = false;
-        currentSessionCode = session;
-        aesMasterKeyStr = key;
-        document.getElementById('ip-input').value = ip;
-        document.getElementById('pin-input').value = session;
-        ui.showScreen('screen-receive');
-        showStatus('QR Code scanné ! Connexion en cours…', 'success');
-
-        // Connect to sender's server
-        connectToServer(ip).then(() => {
-            setTimeout(() => finishJoin(session), 300);
-        }).catch(err => {
-            showStatus(`⚠️ Impossible de rejoindre le sender à ${ip}.`, 'error');
-        });
-    } catch(e) {
-        alert('QR invalide. Scannez le QR affiché dans LocalShare.\nErreur: ' + e.message);
-    }
 }
 
 // ─── FILE UPLOAD (Sender) ───

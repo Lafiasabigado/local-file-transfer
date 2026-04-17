@@ -310,10 +310,31 @@ main {
     border-color: var(--accent-primary);
     background: rgba(10,132,255,0.05);
 }
+.drop-zone.active-peer {
+    border-color: var(--success);
+    background: rgba(52, 199, 89, 0.05);
+}
+.drop-zone.active-peer svg {
+    color: var(--success);
+}
 .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.drop-zone svg { width: 40px; height: 40px; color: var(--accent-primary); margin-bottom: 12px; opacity: 0.7; }
+.drop-zone svg { width: 40px; height: 40px; color: var(--accent-primary); margin-bottom: 12px; opacity: 0.7; transition: color 0.2s }
 .drop-zone h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: var(--text-primary); }
 .drop-zone p { font-size: 13px; color: var(--text-secondary); }
+
+.lang-btn {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    width: auto !important;
+    padding: 0 10px;
+    letter-spacing: 1px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    background: transparent;
+    cursor: pointer;
+}
 
 /* ─── RECEIVE SCREEN ─── */
 .receive-form { text-align: center; padding: 8px 0; width: 100%; }

@@ -22,6 +22,9 @@
             </div>
             <h1>LocalShare</h1>
             <div class="header-actions">
+                <button id="btn-lang" class="icon-button lang-btn" title="Switch Language">
+                    <span id="lang-text">FR</span>
+                </button>
                 <button id="btn-theme" class="icon-button" title="Toggle Dark Mode">
                     <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                     <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -41,16 +44,16 @@
                         <div class="icon-pulse">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                         </div>
-                        <h2>Send Files</h2>
-                        <p>Share with devices on this Wi-Fi</p>
+                        <h2 data-i18n="send_title">Send Files</h2>
+                        <p data-i18n="send_desc">Share with devices on this Wi-Fi</p>
                     </button>
 
                     <button id="btn-choice-receive" class="choice-card secondary">
                         <div class="icon-pulse static">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         </div>
-                        <h2>Receive Files</h2>
-                        <p>Enter a code or scan QR</p>
+                        <h2 data-i18n="recv_title">Receive Files</h2>
+                        <p data-i18n="recv_desc">Enter a code</p>
                     </button>
                 </div>
             </div>
@@ -59,12 +62,12 @@
             <div id="screen-send" class="screen flex-col">
                 <div class="session-info">
                     <div class="code-section">
-                        <span class="label">YOUR PIN CODE</span>
+                        <span class="label" data-i18n="your_pin">YOUR PIN CODE</span>
                         <div class="code-digits" id="my-session-code">------</div>
                         <span class="label ip-label" id="sender-ip-display"></span>
                     </div>
                     <div class="qr-section">
-                        <span class="label">SCAN TO CONNECT</span>
+                        <span class="label" data-i18n="scan_to_connect">SCAN TO CONNECT</span>
                         <div class="qr-wrapper">
                             <canvas id="qr-canvas" width="100" height="100"></canvas>
                             <div id="qr-placeholder" class="loader"></div>
@@ -74,8 +77,8 @@
 
                 <div id="drop-zone" class="drop-zone">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 4v16m8-8H4"></path></svg>
-                    <h3>Drop files here</h3>
-                    <p>or click to browse</p>
+                    <h3 data-i18n="drop_title">Drop files here</h3>
+                    <p data-i18n="drop_desc">or click to browse</p>
                     <input type="file" id="file-input" multiple>
                 </div>
 
@@ -87,36 +90,31 @@
             <!-- Screen 3: Receive -->
             <div id="screen-receive" class="screen flex-col">
                 <div class="receive-form" id="receive-form">
-                    <h3>Connect to Sender</h3>
-                    <p class="receive-subtitle">Enter the sender's IP address and the PIN shown on their screen</p>
+                    <h3 data-i18n="connect_title">Connect to Sender</h3>
+                    <p class="receive-subtitle" data-i18n="connect_desc">Enter the sender's IP address and the PIN shown on their screen</p>
                     <div class="input-group">
-                        <label class="input-label">SENDER'S IP ADDRESS</label>
+                        <label class="input-label" data-i18n="sender_ip">SENDER'S IP ADDRESS</label>
                         <input type="text" id="ip-input" placeholder="e.g. 192.168.1.42" autocomplete="off">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">6-DIGIT PIN CODE</label>
+                        <label class="input-label" data-i18n="digit_pin">6-DIGIT PIN CODE</label>
                         <input type="text" id="pin-input" maxlength="6" placeholder="• • • • • •" autocomplete="off">
                     </div>
-                    <button id="btn-connect" class="action-btn">Connect</button>
-                    <div class="divider"><span>or</span></div>
-                    <button id="btn-scan-qr" class="action-btn secondary-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h4v-7h-7"/><path d="M14 21v-1"/></svg>
-                        Scan QR Code with Camera
-                    </button>
+                    <button id="btn-connect" class="action-btn" data-i18n="connect_btn">Connect</button>
                 </div>
 
                 <div id="receiver-file-list" class="file-list hidden">
                     <div class="connection-status">
-                        <span class="status-dot online"></span> Connected to Session
+                        <span class="status-dot online"></span> <span data-i18n="connected_status">Connected to Session</span>
                     </div>
                 </div>
 
-                <button class="back-link" onclick="disconnectAndGoBack()">← Cancel & Back</button>
+                <button class="back-link" onclick="disconnectAndGoBack()" data-i18n="cancel_back">← Cancel & Back</button>
             </div>
 
             <!-- Screen 4: History -->
             <div id="screen-history" class="screen flex-col">
-                <h3>Transfer History</h3>
+                <h3 data-i18n="history_title">Transfer History</h3>
                 <div id="history-list" class="file-list">
                     <!-- History goes here -->
                 </div>
@@ -125,24 +123,7 @@
         </main>
     </div>
 
-    <!-- QR Scanner Modal -->
-    <div id="qr-modal" class="modal-overlay hidden">
-        <div class="modal-card">
-            <div class="modal-header">
-                <h3>Scan QR Code</h3>
-                <button id="btn-close-scanner" class="icon-button">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
-            </div>
-            <div class="scanner-container">
-                <video id="qr-video" autoplay playsinline muted></video>
-                <div class="scanner-overlay">
-                    <div class="scanner-frame"></div>
-                </div>
-            </div>
-            <p class="scanner-hint">Pointez la caméra vers le QR code du sender</p>
-        </div>
-    </div>
+
 
     <!-- Load Socket.IO locally -->
     <script src="/socket.io/socket.io.js"></script>
