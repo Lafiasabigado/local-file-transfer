@@ -2,11 +2,14 @@
   "name": "local-file-transfer",
   "version": "1.0.0",
   "description": "Secure local file transfer app",
+  "author": "Lafia Sabi Gado",
+  "license": "MIT",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . --no-sandbox",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
+    "build": "electron-builder",
     "build:win": "electron-builder --win portable",
     "build:mac": "electron-builder --mac dmg",
     "build:linux": "electron-builder --linux AppImage"
