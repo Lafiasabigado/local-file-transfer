@@ -2,6 +2,9 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const startServer = require('./server'); // We will modify server.js to export startServer()
 
+// Désactivation de la sandbox essentielle pour lancer l'AppImage sous Linux sans les droits root
+app.commandLine.appendSwitch('no-sandbox');
+
 let mainWindow;
 
 app.whenReady().then(async () => {
@@ -17,8 +20,8 @@ app.whenReady().then(async () => {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true
-        }
-        // icon: path.join(__dirname, 'build/icon.png')
+        },
+        icon: path.join(__dirname, 'build/icon.png')
     });
 
     // On charge l'application comme un client classique sur le port local
