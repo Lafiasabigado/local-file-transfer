@@ -47,7 +47,7 @@ btnTheme.addEventListener('click', () => {
 // ─── STATE ───
 let socket = null;
 let currentSessionCode = null;
-let aesMasterKeyStr    = null;
+let aesMasterKeyStr    = null; // "NO-CRYPTO" if not supported
 let isSender           = false;
 let sessionFiles       = [];
 let scannerStream      = null;
@@ -55,15 +55,21 @@ let scannerInterval    = null;
 
 // ─── CRYPTO ───
 const Crypto = {
+    isSupported: () => !!(window.crypto && window.crypto.subtle),
+
     generateAESKey: async () => {
+        if (!Crypto.isSupported()) return { key: null, exported: new Uint8Array([0]) };
         const key = await crypto.subtle.generateKey({ name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']);
         const raw = await crypto.subtle.exportKey('raw', key);
         return { key, exported: new Uint8Array(raw) };
     },
-    importAESKey: (rawBytes) =>
-        crypto.subtle.importKey('raw', rawBytes, 'AES-GCM', true, ['encrypt','decrypt']),
+    importAESKey: (rawBytes) => {
+        if (!Crypto.isSupported()) return null;
+        return crypto.subtle.importKey('raw', rawBytes, 'AES-GCM', true, ['encrypt','decrypt']);
+    },
 
     encrypt: async (key, buf) => {
+        if (!key) return buf; // fallback plain
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, buf);
         const out = new Uint8Array(12 + ct.byteLength);
@@ -71,22 +77,29 @@ const Crypto = {
         return out.buffer;
     },
     decrypt: async (key, buf) => {
+        if (!key) return buf; // fallback plain
         const b = new Uint8Array(buf);
         return crypto.subtle.decrypt({ name:'AES-GCM', iv:b.slice(0,12) }, key, b.slice(12));
     },
-    generateECDH: () =>
-        crypto.subtle.generateKey({ name:'ECDH', namedCurve:'P-256' }, true, ['deriveKey','deriveBits']),
+    generateECDH: () => {
+        if (!Crypto.isSupported()) return Promise.resolve(null);
+        return crypto.subtle.generateKey({ name:'ECDH', namedCurve:'P-256' }, true, ['deriveKey','deriveBits']);
+    },
 
     exportPubKey: async (key) => {
+        if (!key) return "no-pub";
         const exp = await crypto.subtle.exportKey('spki', key);
         return btoa(String.fromCharCode(...new Uint8Array(exp)));
     },
     importPubKey: (b64) => {
+        if (b64 === "no-pub") return null;
         const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
         return crypto.subtle.importKey('spki', bytes, { name:'ECDH', namedCurve:'P-256'}, true, []);
     },
-    deriveAES: (priv, pub) =>
-        crypto.subtle.deriveKey({ name:'ECDH', public:pub }, priv, { name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']),
+    deriveAES: (priv, pub) => {
+        if (!priv || !pub) return Promise.resolve(null);
+        return crypto.subtle.deriveKey({ name:'ECDH', public:pub }, priv, { name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']);
+    },
 
     toHex: (buf) => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''),
     fromHex: (hex) => new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)))
@@ -147,25 +160,42 @@ function connectToServer(serverIP) {
 
 // ─── ECDH SIGNAL HANDLER ───
 async function handleSignal(data) {
-    if (!isSender && data.type === 'ecdh-offer') {
-        const senderPub = await Crypto.importPubKey(data.pubKey);
-        const myECDH = await Crypto.generateECDH();
-        const shared = await Crypto.deriveAES(myECDH.privateKey, senderPub);
-        const encBytes = Crypto.fromHex(data.encMasterKey);
-        const masterRaw = await Crypto.decrypt(shared, encBytes.buffer);
-        aesMasterKeyStr = Crypto.toHex(masterRaw);
-        socket.emit('signal', { code: currentSessionCode, type: 'ecdh-answer',
-            pubKey: await Crypto.exportPubKey(myECDH.publicKey) });
+    try {
+        if (!isSender && data.type === 'ecdh-offer') {
+            if (data.encMasterKey === 'NO-CRYPTO' || !Crypto.isSupported()) {
+                aesMasterKeyStr = 'NO-CRYPTO';
+                socket.emit('signal', { code: currentSessionCode, type: 'ecdh-answer', pubKey: "no-pub" });
+                return;
+            }
+            const senderPub = await Crypto.importPubKey(data.pubKey);
+            const myECDH = await Crypto.generateECDH();
+            const shared = await Crypto.deriveAES(myECDH.privateKey, senderPub);
+            const encBytes = Crypto.fromHex(data.encMasterKey);
+            const masterRaw = await Crypto.decrypt(shared, encBytes.buffer);
+            aesMasterKeyStr = Crypto.toHex(masterRaw);
+            socket.emit('signal', { code: currentSessionCode, type: 'ecdh-answer',
+                pubKey: await Crypto.exportPubKey(myECDH.publicKey) });
 
-    } else if (isSender && data.type === 'request-key') {
-        const senderECDH = await Crypto.generateECDH();
-        const receiverPub = await Crypto.importPubKey(data.pubKey);
-        const shared = await Crypto.deriveAES(senderECDH.privateKey, receiverPub);
-        const masterBytes = Crypto.fromHex(aesMasterKeyStr);
-        const encBuf = await Crypto.encrypt(shared, masterBytes.buffer);
-        socket.emit('signal', { code: currentSessionCode, type: 'ecdh-offer',
-            pubKey: await Crypto.exportPubKey(senderECDH.publicKey),
-            encMasterKey: Crypto.toHex(encBuf) });
+        } else if (isSender && data.type === 'request-key') {
+            if (aesMasterKeyStr === 'NO-CRYPTO' || data.pubKey === "no-pub" || !Crypto.isSupported()) {
+                socket.emit('signal', { code: currentSessionCode, type: 'ecdh-offer',
+                    pubKey: "no-pub", encMasterKey: "NO-CRYPTO" });
+                return;
+            }
+            const senderECDH = await Crypto.generateECDH();
+            const receiverPub = await Crypto.importPubKey(data.pubKey);
+            const shared = await Crypto.deriveAES(senderECDH.privateKey, receiverPub);
+            const masterBytes = Crypto.fromHex(aesMasterKeyStr);
+            const encBuf = await Crypto.encrypt(shared, masterBytes.buffer);
+            socket.emit('signal', { code: currentSessionCode, type: 'ecdh-offer',
+                pubKey: await Crypto.exportPubKey(senderECDH.publicKey),
+                encMasterKey: Crypto.toHex(encBuf) });
+        }
+    } catch(err) {
+        console.warn("Crypto signaling failed (using fallback):", err);
+        aesMasterKeyStr = 'NO-CRYPTO';
+        if (!isSender) socket.emit('signal', { code: currentSessionCode, type: 'ecdh-answer', pubKey: "no-pub" });
+        else socket.emit('signal', { code: currentSessionCode, type: 'ecdh-offer', pubKey: "no-pub", encMasterKey: "NO-CRYPTO" });
     }
 }
 
@@ -205,7 +235,7 @@ btnSend.addEventListener('click', async () => {
         currentSessionCode = data.code;
 
         const { exported } = await Crypto.generateAESKey();
-        aesMasterKeyStr = Crypto.toHex(exported);
+        aesMasterKeyStr = Crypto.isSupported() ? Crypto.toHex(exported) : 'NO-CRYPTO';
 
         document.getElementById('my-session-code').innerText = currentSessionCode;
         document.getElementById('sender-ip-display').textContent = `IP: ${data.localIp}  •  Port: ${data.port}`;
@@ -257,15 +287,25 @@ function setConnectLoading(loading) {
 }
 
 function finishJoin(code) {
-    document.getElementById('receive-form').classList.add('hidden');
-    document.getElementById('receiver-file-list').classList.remove('hidden');
+    const form = document.getElementById('receive-form');
+    const list = document.getElementById('receiver-file-list');
+    if (form) form.classList.add('hidden');
+    if (list) list.classList.remove('hidden');
+
     socket.emit('join-session', code);
 
     if (!aesMasterKeyStr) {
-        Crypto.generateECDH().then(async ecdh => {
-            const pub = await Crypto.exportPubKey(ecdh.publicKey);
-            socket.emit('signal', { code, type: 'request-key', pubKey: pub });
-        });
+        if (!Crypto.isSupported()) {
+            socket.emit('signal', { code, type: 'request-key', pubKey: "no-pub" });
+        } else {
+            Crypto.generateECDH().then(async ecdh => {
+                const pub = await Crypto.exportPubKey(ecdh.publicKey);
+                socket.emit('signal', { code, type: 'request-key', pubKey: pub });
+            }).catch(e => {
+                console.warn("ECDH failed:", e);
+                socket.emit('signal', { code, type: 'request-key', pubKey: "no-pub" });
+            });
+        }
     }
 }
 
@@ -399,20 +439,23 @@ function handleQRResult(raw) {
 
 dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
 
-// Fix infinite click loop: only trigger if the click didn't come from the input itself
+// Fix infinite click loop: simply let the input handle clicks
 dropZone.addEventListener('click', (e) => {
-    if (e.target !== fileInput) fileInput.click();
+    // Only programmatically click if the user didn't natively click the input
+    if (e.target !== fileInput) {
+        fileInput.click();
+    }
 });
 
-fileInput.addEventListener('change', function() { handleFiles(this.files); this.value=''; });
-fileInput.addEventListener('click', e => e.stopPropagation()); // Prevent bubbling to dropzone
+fileInput.addEventListener('change', function() { if (this.files.length) handleFiles(this.files); this.value=''; });
 
 async function handleFiles(files) {
     if (!currentSessionCode || !aesMasterKeyStr) { alert('No active session.'); return; }
     document.getElementById('sender-file-list').classList.remove('hidden');
 
-    const keyBytes = Crypto.fromHex(aesMasterKeyStr);
-    const aesKey   = await Crypto.importAESKey(keyBytes);
+    const aesKey = (aesMasterKeyStr !== 'NO-CRYPTO' && Crypto.isSupported()) 
+        ? await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr)) 
+        : null;
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -447,13 +490,17 @@ function renderFileList() {
 }
 
 async function downloadFile(fileId, fileName, fileSize) {
-    if (!aesMasterKeyStr) { alert('Security key not received yet.'); return; }
+    if (!aesMasterKeyStr) { alert('Connexion sécurité en cours, veuillez réessayer dans un instant.'); return; }
     const btn = document.querySelector(`#dl-${fileId} button`);
     if (btn) btn.textContent = 'Downloading…';
     try {
         const res = await fetch(`/api/download/${currentSessionCode}/${fileId}`);
         const enc = await (await res.blob()).arrayBuffer();
-        const key = await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr));
+        
+        const key = (aesMasterKeyStr !== 'NO-CRYPTO' && Crypto.isSupported()) 
+            ? await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr)) 
+            : null;
+
         const dec = await Crypto.decrypt(key, enc);
         const url = URL.createObjectURL(new Blob([dec]));
         const a = Object.assign(document.createElement('a'), { href:url, download:fileName });
