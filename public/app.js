@@ -92,21 +92,18 @@ const Crypto = {
     fromHex: (hex) => new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)))
 };
 
-// ─── QR LIBRARY (loads from our static server) ───
-function loadQRLib() {
-    return new Promise(resolve => {
-        if (typeof qrcode !== 'undefined') { resolve(); return; }
-        const s = document.createElement('script');
-        s.src = '/qrcode.min.js';
-        s.onload = resolve;
-        s.onerror = resolve; // silent fail
-        document.head.appendChild(s);
-    });
-}
-
+// ─── QR RENDERING ───
+// qrcode.min.js is loaded via <script> in HTML — no dynamic loading needed
 function drawQR(canvas, text) {
-    if (typeof qrcode === 'undefined') return;
+    const placeholder = document.getElementById('qr-placeholder');
+    if (typeof qrcode === 'undefined') {
+        // Fallback: hide loader, show nothing
+        if (placeholder) placeholder.style.display = 'none';
+        return;
+    }
     try {
+        if (placeholder) placeholder.style.display = 'none';
+        canvas.style.display = 'block';
         const qr = qrcode(0, 'L');
         qr.addData(text);
         qr.make();
@@ -174,7 +171,6 @@ async function handleSignal(data) {
 
 // ─── INIT ───
 async function init() {
-    await loadQRLib();
     // Initial connection to own server (sender mode)
     socket = io(window.location.origin);
     setupSocketListeners(socket);
@@ -402,8 +398,14 @@ function handleQRResult(raw) {
 );
 
 dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
-dropZone.addEventListener('click', () => fileInput.click());
+
+// Fix infinite click loop: only trigger if the click didn't come from the input itself
+dropZone.addEventListener('click', (e) => {
+    if (e.target !== fileInput) fileInput.click();
+});
+
 fileInput.addEventListener('change', function() { handleFiles(this.files); this.value=''; });
+fileInput.addEventListener('click', e => e.stopPropagation()); // Prevent bubbling to dropzone
 
 async function handleFiles(files) {
     if (!currentSessionCode || !aesMasterKeyStr) { alert('No active session.'); return; }

@@ -3,6 +3,9 @@
    Light + Dark mode with CSS variables
    ============================================= */
 
+/* Global utility */
+.hidden { display: none !important; }
+
 :root {
     /* Core Colors */
     --bg-gradient-1: rgba(10, 132, 255, 0.08);
@@ -407,7 +410,7 @@ main {
     flex-direction: column;
     gap: 10px;
 }
-.file-list.hidden { display: none; }
+/* .file-list.hidden handled by global .hidden above */
 
 .file-item {
     background: var(--card-bg);
