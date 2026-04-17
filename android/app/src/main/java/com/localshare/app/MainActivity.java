@@ -112,94 +112,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showConnectDialog() {
-        SharedPreferences prefs = getPreferences(Context.MODE_PRIVATE);
-        String lastIp = prefs.getString(PREF_LAST_IP, "");
-
-        // Build layout
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(60, 40, 60, 20);
-        layout.setGravity(Gravity.CENTER);
-
-        // Logo / title
-        TextView title = new TextView(this);
-        title.setText("LocalShare");
-        title.setTextSize(28);
-        title.setTextColor(Color.parseColor("#0A84FF"));
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        title.setPadding(0, 0, 0, 4);
-        layout.addView(title);
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText("AirDrop Alternative");
-        subtitle.setTextSize(13);
-        subtitle.setTextColor(Color.parseColor("#6B7280"));
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, 0, 0, 32);
-        layout.addView(subtitle);
-
-        // IP input
-        TextView ipLabel = new TextView(this);
-        ipLabel.setText("SENDER'S IP ADDRESS");
-        ipLabel.setTextSize(10);
-        ipLabel.setTextColor(Color.parseColor("#9CA3AF"));
-        ipLabel.setLetterSpacing(0.1f);
-        ipLabel.setPadding(0, 0, 0, 6);
-        layout.addView(ipLabel);
-
-        EditText ipInput = new EditText(this);
-        ipInput.setHint("e.g. 192.168.1.42");
-        ipInput.setText(lastIp);
-        ipInput.setTextSize(16);
-        ipInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        ipInput.setPadding(20, 20, 20, 20);
-        ipInput.setBackground(null);
-        // Add a simple border via background
-        GradientDrawable border = new GradientDrawable();
-        border.setColor(Color.parseColor("#F0F4F8"));
-        border.setCornerRadius(20);
-        border.setStroke(2, Color.parseColor("#C8D2DC"));
-        ipInput.setBackground(border);
-        layout.addView(ipInput);
-
-        // Info text
-        TextView info = new TextView(this);
-        info.setText("\nThe sender's IP is shown on their LocalShare screen under the PIN code.\n\nMake sure both devices are on the same Wi-Fi network.");
-        info.setTextSize(12);
-        info.setTextColor(Color.parseColor("#6B7280"));
-        info.setGravity(Gravity.CENTER);
-        layout.addView(info);
-
-        // Build dialog
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setView(layout);
-        builder.setCancelable(false);
-
-        builder.setPositiveButton("Connect →", (dialog, which) -> {
-            String ip = ipInput.getText().toString().trim();
-            if (ip.isEmpty()) {
-                Toast.makeText(this, "Please enter an IP address", Toast.LENGTH_SHORT).show();
-                return;
+        webView.getSettings().setJavaScriptEnabled(true);
+        // Expose Android context to JavaScript
+        webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void connect(String ip) {
+                SharedPreferences prefs = getPreferences(Context.MODE_PRIVATE);
+                prefs.edit().putString(PREF_LAST_IP, ip).apply();
+                runOnUiThread(() -> loadServer(ip));
             }
-            // Save for next time
-            prefs.edit().putString(PREF_LAST_IP, ip).apply();
-            loadServer(ip);
-        });
+        }, "Android");
 
-        builder.setNegativeButton("×", null);
-
-        AlertDialog dialog = builder.create();
-
-        // Pre-select the text for easy editing
-        dialog.setOnShowListener(d -> {
-            if (!lastIp.isEmpty()) {
-                ipInput.selectAll();
-            }
-        });
-
-        dialog.show();
+        // Load beautiful local HTML instead of native dialog
+        webView.loadUrl("file:///android_asset/welcome.html");
     }
 
     private void loadServer(String ip) {

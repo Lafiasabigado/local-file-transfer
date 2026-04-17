@@ -298,8 +298,11 @@ main {
 }
 .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .drop-zone svg { width: 40px; height: 40px; color: var(--accent-primary); margin-bottom: 12px; opacity: 0.7; transition: color 0.2s }
-.drop-zone h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: var(--text-primary); }
-.drop-zone p { font-size: 13px; color: var(--text-secondary); }
+.drop-zone h3 { 
+    font-size: 16px; font-weight: 600; margin-bottom: 4px; color: var(--text-primary); 
+    text-align: center; word-break: break-word; line-height: 1.4; max-width: 100%;
+}
+.drop-zone p { font-size: 13px; color: var(--text-secondary); text-align: center; }
 
 .lang-btn {
     font-size: 13px;
@@ -422,13 +425,15 @@ main {
     border: 1px solid var(--glass-border);
     transition: all 0.2s;
     gap: 12px;
+    max-width: 100%;
 }
 .file-item:hover { border-color: rgba(10,132,255,0.3); }
 
-.file-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.file-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; overflow: hidden; }
 .file-name { 
     font-weight: 600; font-size: 14px; color: var(--text-primary); 
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
+    max-width: 100%; display: block;
 }
 .file-meta { font-size: 11px; color: var(--text-secondary); }
 
@@ -494,7 +499,8 @@ main {
 
 @media (max-width: 480px) {
     .glass-panel {
-        width: 100%; height: 100%; border-radius: 0; border: none; padding: 20px 16px;
+        width: 100vw; height: 100%; border-radius: 0; border: none; padding: 20px 16px;
+        overflow-x: hidden;
     }
     .header-actions {
         display: flex;
@@ -514,7 +520,8 @@ main {
         flex-direction: column;
         align-items: flex-start;
         gap: 8px;
+        width: 100%;
     }
     .file-action { width: 100%; text-align: left; margin-top: 4px; }
-    .file-action button { width: 100%; }
+    .file-action button { width: 100%; box-sizing: border-box; }
 }
