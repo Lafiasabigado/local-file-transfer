@@ -10,8 +10,6 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -31,10 +29,4 @@ jobs:
         run: npm install
 
       - name: Build
-        run: npm run build
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: app-${{ matrix.os }}
-          path: dist/*
+        run: npx electron-builder --publish always
