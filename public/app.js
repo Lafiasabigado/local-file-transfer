@@ -184,9 +184,6 @@ function setupSocketListeners(sock) {
             document.querySelector('.session-info').style.display = 'none';
             document.querySelector('#drop-zone h3').textContent = currentLang === 'EN' ? 'Peer connected! Drop files' : 'Appareil connecté! Déposez vos fichiers';
             document.getElementById('drop-zone').classList.add('active-peer');
-            // Clean up the QR canvas to save memory
-            const canvas = document.getElementById('qr-canvas');
-            if (canvas) canvas.getContext('2d').clearRect(0,0, canvas.width, canvas.height);
         }
     });
 }
@@ -414,7 +411,13 @@ dropZone.addEventListener('click', (e) => {
     }
 });
 
-fileInput.addEventListener('change', function() { if (this.files.length) handleFiles(this.files); this.value=''; });
+fileInput.addEventListener('change', function() { 
+    if (this.files.length) {
+        const filesArray = Array.from(this.files); // Clone array before clearing native FileList
+        handleFiles(filesArray); 
+    }
+    this.value = ''; 
+});
 
 async function handleFiles(files) {
     if (!currentSessionCode || !aesMasterKeyStr) { alert('No active session.'); return; }
@@ -427,14 +430,22 @@ async function handleFiles(files) {
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const id = `up-${Date.now()}-${i}`;
-        addFileToList('sender-file-list', id, file.name, file.size, '<span style="color:var(--text-muted)">Encrypting…</span>');
+        addFileToList('sender-file-list', id, file.name, file.size, '<span style="color:var(--text-muted)">Sending…</span>');
 
         try {
-            const buf   = await file.arrayBuffer();
-            const enc   = await Crypto.encrypt(aesKey, buf);
-            const form  = new FormData();
+            const form = new FormData();
             form.append('code', currentSessionCode);
-            form.append('files', new Blob([enc]), file.name);
+            
+            if (aesKey) {
+                // E2E Encrypted upload
+                const buf = await file.arrayBuffer();
+                const enc = await Crypto.encrypt(aesKey, buf);
+                form.append('files', new Blob([enc]), file.name);
+            } else {
+                // High-speed direct streaming (native browser upload)
+                form.append('files', file, file.name);
+            }
+
             await fetch('/api/upload', { method:'POST', body:form });
             setFileStatus(id, '<span style="color:var(--success)">✓ Sent</span>');
             saveHistory(file.name, file.size, 'Sent');
@@ -459,16 +470,28 @@ function renderFileList() {
 async function downloadFile(fileId, fileName, fileSize) {
     if (!aesMasterKeyStr) { alert('Connexion sécurité en cours, veuillez réessayer dans un instant.'); return; }
     const btn = document.querySelector(`#dl-${fileId} button`);
+    
+    // If NO encryption is used, we can just trigger native high-speed browser download
+    if (aesMasterKeyStr === 'NO-CRYPTO' || !Crypto.isSupported()) {
+        const a = Object.assign(document.createElement('a'), { 
+            href: `/api/download/${currentSessionCode}/${fileId}`, 
+            download: fileName 
+        });
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        if (btn) btn.textContent = '✓ Done';
+        saveHistory(fileName, fileSize, 'Received');
+        return;
+    }
+
+    // E2E Encrypted download
     if (btn) btn.textContent = 'Downloading…';
     try {
         const res = await fetch(`/api/download/${currentSessionCode}/${fileId}`);
         const enc = await (await res.blob()).arrayBuffer();
         
-        const key = (aesMasterKeyStr !== 'NO-CRYPTO' && Crypto.isSupported()) 
-            ? await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr)) 
-            : null;
-
+        const key = await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr));
         const dec = await Crypto.decrypt(key, enc);
+        
         const url = URL.createObjectURL(new Blob([dec]));
         const a = Object.assign(document.createElement('a'), { href:url, download:fileName });
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
