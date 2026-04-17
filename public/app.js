@@ -285,12 +285,6 @@ btnSend.addEventListener('click', async () => {
         document.getElementById('sender-ip-display').textContent = `IP: ${data.localIp}  •  Port: ${data.port}`;
         socket.emit('join-session', currentSessionCode);
         ui.showScreen('screen-send');
-
-        const url = `http://${data.localIp}:${data.port}/#session=${currentSessionCode}&key=${aesMasterKeyStr}&ip=${data.localIp}`;
-        document.getElementById('qr-placeholder').style.display = 'none';
-        const canvas = document.getElementById('qr-canvas');
-        canvas.style.display = 'block';
-        drawQR(canvas, url);
     } catch(e) {
         alert('Failed to create session: ' + e.message);
         btnSend.querySelector('h2').textContent = 'Send Files';
