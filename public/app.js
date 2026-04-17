@@ -18,6 +18,7 @@ const btnConnect = document.getElementById('btn-connect');
 const btnHistory = document.getElementById('btn-history');
 const btnTheme   = document.getElementById('btn-theme');
 const btnLang    = document.getElementById('btn-lang');
+const btnRefresh = document.getElementById('btn-refresh');
 const dropZone   = document.getElementById('drop-zone');
 const fileInput  = document.getElementById('file-input');
 
@@ -87,6 +88,13 @@ function setLanguage(lang) {
 setLanguage(currentLang);
 
 btnLang.addEventListener('click', () => setLanguage(currentLang === 'EN' ? 'FR' : 'EN'));
+
+// ─── REFRESH APP ───
+if(btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+        window.location.reload();
+    });
+}
 
 // ─── CRYPTO ───
 const Crypto = {

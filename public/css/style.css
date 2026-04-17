@@ -421,11 +421,15 @@ main {
     justify-content: space-between;
     border: 1px solid var(--glass-border);
     transition: all 0.2s;
+    gap: 12px;
 }
 .file-item:hover { border-color: rgba(10,132,255,0.3); }
 
-.file-info { display: flex; flex-direction: column; gap: 3px; }
-.file-name { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+.file-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.file-name { 
+    font-weight: 600; font-size: 14px; color: var(--text-primary); 
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
+}
 .file-meta { font-size: 11px; color: var(--text-secondary); }
 
 .file-action button {
@@ -475,79 +479,6 @@ main {
 }
 .status-dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); }
 
-/* ─── QR MODAL / SCANNER ─── */
-.modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: var(--modal-bg);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 20px;
-    transition: opacity 0.3s;
-}
-.modal-overlay.hidden { display: none; }
-
-.modal-card {
-    background: var(--glass-bg-strong);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    padding: 28px;
-    width: 100%;
-    max-width: 400px;
-    box-shadow: var(--shadow-soft);
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.modal-header h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
-
-.scanner-container {
-    position: relative;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    aspect-ratio: 1;
-    background: #000;
-}
-
-#qr-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-}
-
-.scanner-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.scanner-frame {
-    width: 60%;
-    aspect-ratio: 1;
-    border: 3px solid var(--accent-primary);
-    border-radius: 12px;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.45), 0 0 20px var(--accent-glow);
-}
-
-.scanner-hint {
-    font-size: 13px;
-    color: var(--text-secondary);
-    text-align: center;
-    line-height: 1.5;
-}
-
 /* ─── HISTORY ─── */
 #screen-history h3 {
     font-size: 20px;
@@ -560,3 +491,30 @@ main {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 2px; }
+
+@media (max-width: 480px) {
+    .glass-panel {
+        width: 100%; height: 100%; border-radius: 0; border: none; padding: 20px 16px;
+    }
+    .header-actions {
+        display: flex;
+        gap: 8px;
+    }
+    .lang-btn {
+        display: flex !important;
+        padding: 0 8px;
+    }
+    .session-info { padding: 20px; }
+    .code-digits { font-size: 28px; letter-spacing: 4px; }
+    .icon-pulse { width: 52px; height: 52px; margin-bottom: 12px; }
+    .icon-pulse svg { width: 24px; height: 24px; }
+    .choice-card h2 { font-size: 18px; }
+    
+    .file-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .file-action { width: 100%; text-align: left; margin-top: 4px; }
+    .file-action button { width: 100%; }
+}
