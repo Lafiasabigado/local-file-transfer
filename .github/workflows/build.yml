@@ -28,7 +28,15 @@ jobs:
       - name: Install deps
         run: npm install
 
-      - name: Build & Publish
-        run: npx electron-builder --publish always
+      - name: Build
+        run: npx electron-builder
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
