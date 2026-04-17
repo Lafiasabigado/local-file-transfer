@@ -127,11 +127,14 @@ function startServer(preferredPort = 3000) {
             if (sessions[code]) {
                 socket.join(code);
                 socket.emit('files-updated', sessions[code].files);
-                // Announce that someone joined, useful for ECDH signaling
                 socket.to(code).emit('peer-joined', socket.id);
             } else {
                 socket.emit('session-error', 'Invalid Session');
             }
+        });
+
+        socket.on('leave-session', (code) => {
+            socket.leave(code);
         });
 
         // Universal signaling for ECDH Security

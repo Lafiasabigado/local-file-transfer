@@ -1,7 +1,6 @@
 /* =============================================
-   LocalShare — app.js
-   Fixes: connection between devices, QR scanner,
-   dark mode toggle, icon
+   LocalShare — app.js (v2)
+   Fixed: connect button, QR scanner, dark mode
    ============================================= */
 
 // ─── UI HELPERS ───
@@ -25,381 +24,290 @@ const fileInput  = document.getElementById('file-input');
 const qrModal    = document.getElementById('qr-modal');
 const qrVideo    = document.getElementById('qr-video');
 
-// ─── DARK MODE TOGGLE ───
-;(function initTheme() {
-    // Check saved preference first, then system
+// ─── DARK MODE ───
+(function initTheme() {
     const saved = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const theme = saved || (prefersDark ? 'dark' : 'light');
-    applyTheme(theme);
+    applyTheme(saved || (prefersDark ? 'dark' : 'light'));
 })();
 
 function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
-    document.getElementById('icon-sun').style.display  = theme === 'dark' ? 'none'  : 'block';
-    document.getElementById('icon-moon').style.display = theme === 'dark' ? 'block' : 'none';
+    const sunIcon  = document.getElementById('icon-sun');
+    const moonIcon = document.getElementById('icon-moon');
+    if (sunIcon)  sunIcon.style.display  = theme === 'dark' ? 'none'  : 'block';
+    if (moonIcon) moonIcon.style.display = theme === 'dark' ? 'block' : 'none';
 }
 
 btnTheme.addEventListener('click', () => {
-    const current = document.documentElement.getAttribute('data-theme');
-    applyTheme(current === 'dark' ? 'light' : 'dark');
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
 });
 
-// ─── GLOBAL STATE ───
+// ─── STATE ───
 let socket = null;
 let currentSessionCode = null;
-let aesMasterKeyStr = null;
-let isSender = false;
-let sessionFiles = [];
-let scannerStream = null;
-let scannerInterval = null;
+let aesMasterKeyStr    = null;
+let isSender           = false;
+let sessionFiles       = [];
+let scannerStream      = null;
+let scannerInterval    = null;
 
-// ─── CRYPTO HELPER (ECDH + AES-GCM) ───
-const CryptoHelper = {
+// ─── CRYPTO ───
+const Crypto = {
     generateAESKey: async () => {
-        const key = await window.crypto.subtle.generateKey(
-            { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
-        );
-        const exported = await window.crypto.subtle.exportKey("raw", key);
-        return { key, exported: new Uint8Array(exported) };
+        const key = await crypto.subtle.generateKey({ name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']);
+        const raw = await crypto.subtle.exportKey('raw', key);
+        return { key, exported: new Uint8Array(raw) };
     },
+    importAESKey: (rawBytes) =>
+        crypto.subtle.importKey('raw', rawBytes, 'AES-GCM', true, ['encrypt','decrypt']),
 
-    importAESKey: async (rawBytes) => {
-        return window.crypto.subtle.importKey(
-            "raw", rawBytes, "AES-GCM", true, ["encrypt", "decrypt"]
-        );
+    encrypt: async (key, buf) => {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, buf);
+        const out = new Uint8Array(12 + ct.byteLength);
+        out.set(iv); out.set(new Uint8Array(ct), 12);
+        return out.buffer;
     },
-
-    encryptFileChunk: async (key, arrayBuffer) => {
-        const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const ciphertext = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, arrayBuffer);
-        const bundle = new Uint8Array(iv.length + ciphertext.byteLength);
-        bundle.set(iv, 0);
-        bundle.set(new Uint8Array(ciphertext), iv.length);
-        return bundle.buffer;
+    decrypt: async (key, buf) => {
+        const b = new Uint8Array(buf);
+        return crypto.subtle.decrypt({ name:'AES-GCM', iv:b.slice(0,12) }, key, b.slice(12));
     },
+    generateECDH: () =>
+        crypto.subtle.generateKey({ name:'ECDH', namedCurve:'P-256' }, true, ['deriveKey','deriveBits']),
 
-    decryptFileChunk: async (key, arrayBuffer) => {
-        const bundle = new Uint8Array(arrayBuffer);
-        const iv = bundle.slice(0, 12);
-        const ciphertext = bundle.slice(12);
-        return window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    exportPubKey: async (key) => {
+        const exp = await crypto.subtle.exportKey('spki', key);
+        return btoa(String.fromCharCode(...new Uint8Array(exp)));
     },
-
-    generateECDH: async () => {
-        return window.crypto.subtle.generateKey(
-            { name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey", "deriveBits"]
-        );
+    importPubKey: (b64) => {
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        return crypto.subtle.importKey('spki', bytes, { name:'ECDH', namedCurve:'P-256'}, true, []);
     },
+    deriveAES: (priv, pub) =>
+        crypto.subtle.deriveKey({ name:'ECDH', public:pub }, priv, { name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']),
 
-    exportPublicKey: async (key) => {
-        const exported = await window.crypto.subtle.exportKey("spki", key);
-        return btoa(String.fromCharCode(...new Uint8Array(exported)));
-    },
-
-    importPublicKey: async (base64) => {
-        const binary = atob(base64);
-        const bytes = new Uint8Array([...binary].map(c => c.charCodeAt(0)));
-        return window.crypto.subtle.importKey(
-            "spki", bytes, { name: "ECDH", namedCurve: "P-256" }, true, []
-        );
-    },
-
-    deriveAESFromECDH: async (privateKey, publicKey) => {
-        return window.crypto.subtle.deriveKey(
-            { name: "ECDH", public: publicKey },
-            privateKey,
-            { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
-        );
-    }
+    toHex: (buf) => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''),
+    fromHex: (hex) => new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)))
 };
 
-// ─── INLINE QR CODE GENERATOR (no external library) ───
-// Simple QR code using canvas via the API — but purely for display on sender side
-async function renderQRCode(canvasEl, text) {
-    // We use a tiny inline QR lib approach via svg data URI
-    // Since Electron has full chrome support, we use the qrcode-generator pattern
-    // Fallback: render the URL as text if BarcodeDetector isn't available
-    try {
-        // Draw a "loading" state first
-        const ctx = canvasEl.getContext('2d');
-        const size = canvasEl.width;
-
-        // Use fetch to an offline-capable service only if online
-        // Instead, we'll use a bundled pure-JS QR renderer
-        if (typeof QRCode !== 'undefined') {
-            // If QRCode.js is loaded
-            return;
-        }
-
-        // Draw the URL as a simple visual cue with a border pattern
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, size, size);
-
-        // Draw "pseudo QR" pattern that shows the session
-        ctx.fillStyle = '#0A84FF';
-        ctx.font = 'bold 8px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('SCAN WITH', size/2, 30);
-        ctx.fillText('PHONE CAMERA', size/2, 45);
-        ctx.font = 'bold 10px monospace';
-        ctx.fillStyle = '#1a1d23';
-        const urlShort = text.substring(7, 30) + '...';
-        ctx.fillText(urlShort, size/2, 65);
-
-        // Draw a border
-        ctx.strokeStyle = '#0A84FF';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(4, 4, size-8, size-8);
-
-        // Signal: try to get a real QR from the embedded approach
-        generateRealQR(canvasEl, text);
-    } catch(e) {
-        console.log('QR render fallback');
-    }
-}
-
-// Build a minimal QR code using only canvas (simplified Reed-Solomon)
-// For this app: embed the qrious library inline for true offline QR
-function generateRealQR(canvas, text) {
-    // We create a data URI via the browser's native fetch of an SVG
-    // This is a pure-JS minimal QR code generator for Electron
-    const qr = buildMinimalQR(text);
-    if (!qr) return;
-
-    const ctx = canvas.getContext('2d');
-    const size = canvas.width;
-    const moduleSize = Math.floor(size / qr.size);
-    const offset = Math.floor((size - qr.size * moduleSize) / 2);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = '#000000';
-
-    for (let r = 0; r < qr.size; r++) {
-        for (let c = 0; c < qr.size; c++) {
-            if (qr.isDark(r, c)) {
-                ctx.fillRect(offset + c * moduleSize, offset + r * moduleSize, moduleSize, moduleSize);
-            }
-        }
-    }
-}
-
-// Mini QR using qrcodejs approach - we load it dynamically from our own server
-async function loadQRLib() {
-    return new Promise((resolve) => {
+// ─── QR LIBRARY (loads from our static server) ───
+function loadQRLib() {
+    return new Promise(resolve => {
         if (typeof qrcode !== 'undefined') { resolve(); return; }
-        const script = document.createElement('script');
-        script.src = '/qrcode.min.js';
-        script.onload = resolve;
-        script.onerror = () => resolve(); // Fail silently
-        document.head.appendChild(script);
+        const s = document.createElement('script');
+        s.src = '/qrcode.min.js';
+        s.onload = resolve;
+        s.onerror = resolve; // silent fail
+        document.head.appendChild(s);
     });
 }
 
-function buildMinimalQR(text) {
-    // We rely on the qrcode lib loaded from server
-    if (typeof qrcode === 'undefined') return null;
+function drawQR(canvas, text) {
+    if (typeof qrcode === 'undefined') return;
     try {
         const qr = qrcode(0, 'L');
         qr.addData(text);
         qr.make();
-        return {
-            size: qr.getModuleCount(),
-            isDark: (r, c) => qr.isDark(r, c)
-        };
-    } catch(e) { return null; }
+        const ctx = canvas.getContext('2d');
+        const sz = canvas.width;
+        const mc = qr.getModuleCount();
+        const ms = Math.floor(sz / mc);
+        const off = Math.floor((sz - mc * ms) / 2);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, sz, sz);
+        ctx.fillStyle = '#000';
+        for (let r = 0; r < mc; r++)
+            for (let c = 0; c < mc; c++)
+                if (qr.isDark(r, c))
+                    ctx.fillRect(off + c*ms, off + r*ms, ms, ms);
+    } catch(e) { console.warn('QR render failed', e); }
 }
 
-// ─── SOCKET CONNECTION ───
-function createSocket(serverIP) {
-    // Disconnect existing socket if any
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
-
-    const serverUrl = serverIP ? `http://${serverIP}:3000` : window.location.origin;
-    socket = require ? io(serverUrl) : io(serverUrl);
-
-    socket.on('files-updated', (files) => {
+// ─── SOCKET MANAGEMENT ───
+function setupSocketListeners(sock) {
+    sock.on('files-updated', (files) => {
         sessionFiles = files;
         renderFileList();
     });
+    sock.on('signal', handleSignal);
+}
 
-    socket.on('signal', handleSignal);
+function connectToServer(serverIP) {
+    return new Promise((resolve, reject) => {
+        if (socket) { socket.off(); socket.disconnect(); socket = null; }
 
-    socket.on('connect_error', (err) => {
-        showConnectionError('Cannot reach the sender. Check the IP address and make sure both devices are on the same Wi-Fi.');
+        const url = serverIP ? `http://${serverIP}:3000` : window.location.origin;
+        const s = io(url, { timeout: 5000, reconnection: false });
+
+        s.on('connect', () => { socket = s; setupSocketListeners(s); resolve(s); });
+        s.on('connect_error', (err) => reject(err));
+        // Timeout fallback
+        setTimeout(() => reject(new Error('Connection timeout')), 6000);
     });
-
-    return socket;
 }
 
-function showConnectionError(msg) {
-    const form = document.getElementById('receive-form');
-    let err = document.getElementById('conn-error');
-    if (!err) {
-        err = document.createElement('p');
-        err.id = 'conn-error';
-        err.style.cssText = 'color:#FF3B30;font-size:13px;margin-top:12px;line-height:1.5;';
-        form.appendChild(err);
-    }
-    err.textContent = '⚠️ ' + msg;
-}
-
-function clearConnectionError() {
-    const err = document.getElementById('conn-error');
-    if (err) err.remove();
-}
-
-// ─── SIGNAL HANDLER (ECDH key exchange) ───
+// ─── ECDH SIGNAL HANDLER ───
 async function handleSignal(data) {
     if (!isSender && data.type === 'ecdh-offer') {
-        const senderPubKey = await CryptoHelper.importPublicKey(data.pubKey);
-        const myEcdh = await CryptoHelper.generateECDH();
-        const myPubKeyBase64 = await CryptoHelper.exportPublicKey(myEcdh.publicKey);
-        const sharedKey = await CryptoHelper.deriveAESFromECDH(myEcdh.privateKey, senderPubKey);
+        const senderPub = await Crypto.importPubKey(data.pubKey);
+        const myECDH = await Crypto.generateECDH();
+        const shared = await Crypto.deriveAES(myECDH.privateKey, senderPub);
+        const encBytes = Crypto.fromHex(data.encMasterKey);
+        const masterRaw = await Crypto.decrypt(shared, encBytes.buffer);
+        aesMasterKeyStr = Crypto.toHex(masterRaw);
+        socket.emit('signal', { code: currentSessionCode, type: 'ecdh-answer',
+            pubKey: await Crypto.exportPubKey(myECDH.publicKey) });
 
-        const encKeyBits = new Uint8Array(data.encMasterKey.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-        const masterRaw = await CryptoHelper.decryptFileChunk(sharedKey, encKeyBits.buffer);
-        aesMasterKeyStr = Array.from(new Uint8Array(masterRaw)).map(b => b.toString(16).padStart(2,'0')).join('');
-
-        socket.emit('signal', { code: currentSessionCode, type: 'ecdh-answer', pubKey: myPubKeyBase64 });
     } else if (isSender && data.type === 'request-key') {
-        const senderEcdh = await CryptoHelper.generateECDH();
-        const senderPubKey = await CryptoHelper.exportPublicKey(senderEcdh.publicKey);
-        const receiverPubKey = await CryptoHelper.importPublicKey(data.pubKey);
-        const sharedKey = await CryptoHelper.deriveAESFromECDH(senderEcdh.privateKey, receiverPubKey);
-
-        const masterRawBytes = new Uint8Array(aesMasterKeyStr.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-        const encMasterBuffer = await CryptoHelper.encryptFileChunk(sharedKey, masterRawBytes.buffer);
-        const encMasterHex = Array.from(new Uint8Array(encMasterBuffer)).map(b => b.toString(16).padStart(2,'0')).join('');
-
-        socket.emit('signal', {
-            code: currentSessionCode, type: 'ecdh-offer', pubKey: senderPubKey, encMasterKey: encMasterHex
-        });
+        const senderECDH = await Crypto.generateECDH();
+        const receiverPub = await Crypto.importPubKey(data.pubKey);
+        const shared = await Crypto.deriveAES(senderECDH.privateKey, receiverPub);
+        const masterBytes = Crypto.fromHex(aesMasterKeyStr);
+        const encBuf = await Crypto.encrypt(shared, masterBytes.buffer);
+        socket.emit('signal', { code: currentSessionCode, type: 'ecdh-offer',
+            pubKey: await Crypto.exportPubKey(senderECDH.publicKey),
+            encMasterKey: Crypto.toHex(encBuf) });
     }
 }
 
-// ─── INITIALIZATION ───
+// ─── INIT ───
 async function init() {
-    // Load QR library from our own server
     await loadQRLib();
+    // Initial connection to own server (sender mode)
+    socket = io(window.location.origin);
+    setupSocketListeners(socket);
 
-    // Create default socket (connects to own server — for sender)
-    createSocket(null);
-
-    // Check if we arrived via QR link: /#session=123456&key=...
+    // QR hash deep-link (phone scanning the QR code in browser)
     if (window.location.hash) {
-        const params = new URLSearchParams(window.location.hash.substring(1));
-        const session = params.get('session');
-        const keyHex = params.get('key');
-        const ip = params.get('ip');
-        if (session && keyHex) {
+        const p = new URLSearchParams(window.location.hash.slice(1));
+        const session = p.get('session'), key = p.get('key'), ip = p.get('ip');
+        if (session && key && ip) {
             isSender = false;
             currentSessionCode = session;
-            aesMasterKeyStr = keyHex;
-            // Reconnect socket to the sender's server
-            if (ip && ip !== window.location.hostname) {
-                createSocket(ip);
+            aesMasterKeyStr = key;
+            if (ip !== window.location.hostname) {
+                socket.off(); socket.disconnect();
+                socket = io(`http://${ip}:3000`);
+                setupSocketListeners(socket);
             }
             ui.showScreen('screen-receive');
-            setTimeout(() => joinSession(session), 500); // Wait for socket to connect
+            setTimeout(() => finishJoin(session), 600);
         }
     }
 }
 
-// ─── SENDER LOGIC ───
+// ─── SENDER ───
 btnSend.addEventListener('click', async () => {
     isSender = true;
+    btnSend.disabled = true;
+    btnSend.querySelector('h2').textContent = 'Loading…';
+    try {
+        const res  = await fetch('/api/session');
+        const data = await res.json();
+        currentSessionCode = data.code;
 
-    // Create session on OUR server
-    const res = await fetch('/api/session');
-    const data = await res.json();
-    currentSessionCode = data.code;
+        const { exported } = await Crypto.generateAESKey();
+        aesMasterKeyStr = Crypto.toHex(exported);
 
-    // Generate AES master key
-    const { exported } = await CryptoHelper.generateAESKey();
-    aesMasterKeyStr = Array.from(exported).map(b => b.toString(16).padStart(2,'0')).join('');
+        document.getElementById('my-session-code').innerText = currentSessionCode;
+        document.getElementById('sender-ip-display').textContent = `IP: ${data.localIp}  •  Port: ${data.port}`;
+        socket.emit('join-session', currentSessionCode);
+        ui.showScreen('screen-send');
 
-    // Update UI
-    document.getElementById('my-session-code').innerText = currentSessionCode;
-    document.getElementById('sender-ip-display').textContent = `IP: ${data.localIp}:${data.port}`;
-    ui.showScreen('screen-send');
-    socket.emit('join-session', currentSessionCode);
-
-    // QR code contains: IP, port, session code, and AES key
-    const url = `http://${data.localIp}:${data.port}/#session=${currentSessionCode}&key=${aesMasterKeyStr}&ip=${data.localIp}`;
-    
-    // Hide loader, show QR canvas
-    const placeholder = document.getElementById('qr-placeholder');
-    const canvas = document.getElementById('qr-canvas');
-    placeholder.style.display = 'none';
-    canvas.style.display = 'block';
-    await renderQRCode(canvas, url);
+        const url = `http://${data.localIp}:${data.port}/#session=${currentSessionCode}&key=${aesMasterKeyStr}&ip=${data.localIp}`;
+        document.getElementById('qr-placeholder').style.display = 'none';
+        const canvas = document.getElementById('qr-canvas');
+        canvas.style.display = 'block';
+        drawQR(canvas, url);
+    } catch(e) {
+        alert('Failed to create session: ' + e.message);
+        btnSend.querySelector('h2').textContent = 'Send Files';
+    } finally {
+        btnSend.disabled = false;
+        btnSend.querySelector('h2').textContent = 'Send Files';
+    }
 });
 
-// ─── RECEIVER LOGIC ───
-btnReceive.addEventListener('click', () => {
-    isSender = false;
-    ui.showScreen('screen-receive');
-});
+// ─── RECEIVER ───
+btnReceive.addEventListener('click', () => { isSender = false; ui.showScreen('screen-receive'); });
 
 btnConnect.addEventListener('click', async () => {
     const code = document.getElementById('pin-input').value.trim();
-    const ip = document.getElementById('ip-input').value.trim();
+    const ip   = document.getElementById('ip-input').value.trim();
+    clearStatus();
 
-    clearConnectionError();
+    if (code.length !== 6) { showStatus('⚠️ Enter the 6-digit PIN shown on the sender\'s screen.', 'error'); return; }
+    if (!ip)               { showStatus('⚠️ Enter the sender\'s IP address shown under their PIN.', 'error'); return; }
 
-    if (code.length !== 6) {
-        showConnectionError('Please enter the 6-digit PIN code shown on the sender\'s screen.');
-        return;
-    }
-    if (!ip) {
-        showConnectionError('Please enter the sender\'s IP address (shown under the PIN on their screen).');
-        return;
-    }
-
+    setConnectLoading(true);
     currentSessionCode = code;
     isSender = false;
 
-    // Connect socket to sender's server
-    createSocket(ip);
-
-    // Wait a moment for connection then join
-    setTimeout(() => joinSession(code), 800);
+    try {
+        await connectToServer(ip);
+        showStatus('✓ Connected! Waiting for files…', 'success');
+        setTimeout(() => finishJoin(code), 300);
+    } catch(e) {
+        setConnectLoading(false);
+        showStatus(`⚠️ Cannot reach sender at ${ip}. Make sure:\n• Both devices are on the same Wi-Fi\n• The IP address is correct`, 'error');
+    }
 });
 
-async function joinSession(code) {
-    document.getElementById('receiver-file-list').classList.remove('hidden');
-    document.getElementById('receive-form').classList.add('hidden');
+function setConnectLoading(loading) {
+    btnConnect.disabled = loading;
+    btnConnect.textContent = loading ? 'Connecting…' : 'Connect';
+}
 
+function finishJoin(code) {
+    document.getElementById('receive-form').classList.add('hidden');
+    document.getElementById('receiver-file-list').classList.remove('hidden');
     socket.emit('join-session', code);
 
-    // Request key via ECDH if we don't have it yet
     if (!aesMasterKeyStr) {
-        const myEcdh = await CryptoHelper.generateECDH();
-        const myPubKeyBase64 = await CryptoHelper.exportPublicKey(myEcdh.publicKey);
-        socket.emit('signal', { code, type: 'request-key', pubKey: myPubKeyBase64 });
+        Crypto.generateECDH().then(async ecdh => {
+            const pub = await Crypto.exportPubKey(ecdh.publicKey);
+            socket.emit('signal', { code, type: 'request-key', pubKey: pub });
+        });
     }
 }
 
 function disconnectAndGoBack() {
-    if (socket) socket.emit('leave-session', currentSessionCode);
-    currentSessionCode = null;
-    aesMasterKeyStr = null;
-    isSender = false;
-    // Reset receive form visibility
+    if (socket && currentSessionCode) socket.emit('leave-session', currentSessionCode);
+    currentSessionCode = null; aesMasterKeyStr = null; isSender = false;
     document.getElementById('receive-form').classList.remove('hidden');
     document.getElementById('receiver-file-list').classList.add('hidden');
     document.getElementById('pin-input').value = '';
-    document.getElementById('ip-input').value = '';
-    clearConnectionError();
-    // Reconnect socket to own server
-    createSocket(null);
+    document.getElementById('ip-input').value  = '';
+    clearStatus(); setConnectLoading(false);
+    // Reconnect to own server
+    if (socket) { socket.off(); socket.disconnect(); }
+    socket = io(window.location.origin);
+    setupSocketListeners(socket);
     ui.showScreen('screen-choice');
+}
+
+// ─── STATUS MESSAGES ───
+function showStatus(msg, type) {
+    let el = document.getElementById('status-msg');
+    if (!el) {
+        el = document.createElement('p');
+        el.id = 'status-msg';
+        document.getElementById('receive-form').appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.cssText = `
+        font-size:13px; line-height:1.6; margin-top:12px; padding:12px;
+        border-radius:10px; white-space:pre-line;
+        color:${type==='error'?'#FF3B30':'#34C759'};
+        background:${type==='error'?'rgba(255,59,48,0.08)':'rgba(52,199,89,0.08)'};
+        border:1px solid ${type==='error'?'rgba(255,59,48,0.2)':'rgba(52,199,89,0.2)'};
+    `;
+}
+function clearStatus() {
+    const el = document.getElementById('status-msg');
+    if (el) el.remove();
 }
 
 // ─── QR SCANNER (in-app camera) ───
@@ -410,222 +318,191 @@ async function openScanner() {
     qrModal.classList.remove('hidden');
     try {
         scannerStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+            video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:720} }
         });
         qrVideo.srcObject = scannerStream;
-        await qrVideo.play();
+        qrVideo.play();
         startScanLoop();
     } catch(err) {
         closeScanner();
-        alert('Cannot access camera: ' + err.message + '\nMake sure you granted camera permissions.');
+        if (err.name === 'NotAllowedError') {
+            alert('📷 Camera permission denied.\n\nPlease allow camera access:\nSettings > App > LocalShare > Camera → Allow');
+        } else {
+            alert('Cannot access camera: ' + err.message);
+        }
     }
 }
 
 function closeScanner() {
-    clearInterval(scannerInterval);
-    scannerInterval = null;
-    if (scannerStream) {
-        scannerStream.getTracks().forEach(t => t.stop());
-        scannerStream = null;
-    }
+    clearInterval(scannerInterval); scannerInterval = null;
+    if (scannerStream) { scannerStream.getTracks().forEach(t=>t.stop()); scannerStream=null; }
     qrVideo.srcObject = null;
     qrModal.classList.add('hidden');
 }
 
 function startScanLoop() {
     if (!('BarcodeDetector' in window)) {
-        // Fallback: show instruction
         document.querySelector('.scanner-hint').textContent =
-            '⚠️ QR scanning not supported in this browser. Please type the IP and PIN manually.';
+            '⚠️ Scan automatique non supporté. Tapez manuellement l\'IP et le PIN.';
         return;
     }
-
     const detector = new BarcodeDetector({ formats: ['qr_code'] });
     const offscreen = document.createElement('canvas');
     const ctx = offscreen.getContext('2d');
 
     scannerInterval = setInterval(async () => {
-        if (qrVideo.readyState < 2) return;
+        if (qrVideo.readyState < 2 || qrVideo.videoWidth === 0) return;
         offscreen.width = qrVideo.videoWidth;
         offscreen.height = qrVideo.videoHeight;
         ctx.drawImage(qrVideo, 0, 0);
-
         try {
             const codes = await detector.detect(offscreen);
-            if (codes.length > 0) {
-                const rawValue = codes[0].rawValue;
-                handleQRResult(rawValue);
-            }
-        } catch(e) {}
-    }, 300);
+            if (codes.length > 0) handleQRResult(codes[0].rawValue);
+        } catch{}
+    }, 250);
 }
 
-function handleQRResult(rawValue) {
+function handleQRResult(raw) {
     closeScanner();
     try {
-        // Parse the URL: http://IP:PORT/#session=CODE&key=KEY&ip=IP
-        const url = new URL(rawValue);
-        const hash = new URLSearchParams(url.hash.substring(1));
-        const session = hash.get('session');
-        const keyHex = hash.get('key');
-        const ip = hash.get('ip') || url.hostname;
-        const port = url.port || '3000';
+        const url = new URL(raw);
+        const hash = new URLSearchParams(url.hash.slice(1));
+        const session = hash.get('session'), key = hash.get('key'), ip = hash.get('ip') || url.hostname;
 
-        if (session && keyHex && ip) {
-            currentSessionCode = session;
-            aesMasterKeyStr = keyHex;
-            isSender = false;
+        if (!session || !key || !ip) throw new Error('Missing params');
 
-            // Show success in receive screen
-            document.getElementById('ip-input').value = ip;
-            document.getElementById('pin-input').value = session;
-            ui.showScreen('screen-receive');
+        isSender = false;
+        currentSessionCode = session;
+        aesMasterKeyStr = key;
+        document.getElementById('ip-input').value = ip;
+        document.getElementById('pin-input').value = session;
+        ui.showScreen('screen-receive');
+        showStatus('QR Code scanné ! Connexion en cours…', 'success');
 
-            // Connect to sender's server
-            createSocket(ip);
-            setTimeout(() => joinSession(session), 800);
-        } else {
-            alert('Invalid QR code. Make sure you scan a LocalShare QR code.');
-        }
+        // Connect to sender's server
+        connectToServer(ip).then(() => {
+            setTimeout(() => finishJoin(session), 300);
+        }).catch(err => {
+            showStatus(`⚠️ Impossible de rejoindre le sender à ${ip}.`, 'error');
+        });
     } catch(e) {
-        alert('Could not read QR code data: ' + rawValue);
+        alert('QR invalide. Scannez le QR affiché dans LocalShare.\nErreur: ' + e.message);
     }
 }
 
-// ─── FILE HANDLING (UPLOAD) ───
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
-    dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); });
-});
-['dragenter', 'dragover'].forEach(ev => {
-    dropZone.addEventListener(ev, () => dropZone.classList.add('active'));
-});
-['dragleave', 'drop'].forEach(ev => {
-    dropZone.addEventListener(ev, () => dropZone.classList.remove('active'));
-});
+// ─── FILE UPLOAD (Sender) ───
+['dragenter','dragover','dragleave','drop'].forEach(ev =>
+    dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); })
+);
+['dragenter','dragover'].forEach(ev =>
+    dropZone.addEventListener(ev, () => dropZone.classList.add('active'))
+);
+['dragleave','drop'].forEach(ev =>
+    dropZone.addEventListener(ev, () => dropZone.classList.remove('active'))
+);
 
 dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
 dropZone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', function() { handleFiles(this.files); });
+fileInput.addEventListener('change', function() { handleFiles(this.files); this.value=''; });
 
 async function handleFiles(files) {
-    if (!currentSessionCode || !aesMasterKeyStr) {
-        alert('No active session. Please wait for the sender screen to appear.');
-        return;
-    }
+    if (!currentSessionCode || !aesMasterKeyStr) { alert('No active session.'); return; }
     document.getElementById('sender-file-list').classList.remove('hidden');
 
-    const keyBytes = new Uint8Array(aesMasterKeyStr.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-    const aesKeyObj = await CryptoHelper.importAESKey(keyBytes);
+    const keyBytes = Crypto.fromHex(aesMasterKeyStr);
+    const aesKey   = await Crypto.importAESKey(keyBytes);
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const id = 'upload-' + Date.now() + '-' + i;
-        addFileToUI('sender-file-list', id, file.name, file.size, 'Encrypting…');
+        const id = `up-${Date.now()}-${i}`;
+        addFileToList('sender-file-list', id, file.name, file.size, '<span style="color:var(--text-muted)">Encrypting…</span>');
 
         try {
-            const buffer = await file.arrayBuffer();
-            const encryptedBuffer = await CryptoHelper.encryptFileChunk(aesKeyObj, buffer);
-            const formData = new FormData();
-            formData.append('code', currentSessionCode);
-            formData.append('files', new Blob([encryptedBuffer]), file.name);
-
-            await fetch('/api/upload', { method: 'POST', body: formData });
-
-            document.getElementById(id).querySelector('.file-action').innerHTML =
-                '<span class="status-dot online"></span> Sent';
+            const buf   = await file.arrayBuffer();
+            const enc   = await Crypto.encrypt(aesKey, buf);
+            const form  = new FormData();
+            form.append('code', currentSessionCode);
+            form.append('files', new Blob([enc]), file.name);
+            await fetch('/api/upload', { method:'POST', body:form });
+            setFileStatus(id, '<span style="color:var(--success)">✓ Sent</span>');
             saveHistory(file.name, file.size, 'Sent');
         } catch(e) {
             console.error(e);
-            document.getElementById(id).querySelector('.file-action').innerText = 'Error';
+            setFileStatus(id, '<span style="color:var(--danger)">✗ Error</span>');
         }
     }
 }
 
-function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
-    return (bytes/(1024*1024)).toFixed(1) + ' MB';
-}
-
-function addFileToUI(listId, elId, name, size, statusHTML) {
-    const list = document.getElementById(listId);
-    const div = document.createElement('div');
-    div.id = elId;
-    div.className = 'file-item';
-    div.innerHTML = `
-        <div class="file-info">
-            <span class="file-name">${name}</span>
-            <span class="file-meta">${formatSize(size)}</span>
-        </div>
-        <div class="file-action">${statusHTML}</div>
-    `;
-    list.appendChild(div);
-}
-
-// ─── RECEIVER FILE RENDERING ───
+// ─── FILE DOWNLOAD (Receiver) ───
 function renderFileList() {
     if (isSender) return;
     const list = document.getElementById('receiver-file-list');
-    list.innerHTML = `<div class="connection-status"><span class="status-dot online"></span> Connected · ${sessionFiles.length} file(s) available</div>`;
-
+    list.innerHTML = `<div class="connection-status"><span class="status-dot online"></span> Connected · ${sessionFiles.length} file(s) ready</div>`;
     sessionFiles.forEach(f => {
-        addFileToUI('receiver-file-list', `dl-${f.id}`, f.name, f.size,
-            `<button onclick="downloadFile('${f.id}','${f.name}','${f.size}')">Download</button>`
-        );
+        addFileToList('receiver-file-list', `dl-${f.id}`, f.name, f.size,
+            `<button onclick="downloadFile('${f.id}','${f.name}',${f.size})">Download</button>`);
     });
 }
 
 async function downloadFile(fileId, fileName, fileSize) {
-    if (!aesMasterKeyStr) { alert('Security key not established yet. Please wait.'); return; }
-
-    const btn = document.getElementById(`dl-${fileId}`)?.querySelector('button');
+    if (!aesMasterKeyStr) { alert('Security key not received yet.'); return; }
+    const btn = document.querySelector(`#dl-${fileId} button`);
     if (btn) btn.textContent = 'Downloading…';
-
     try {
         const res = await fetch(`/api/download/${currentSessionCode}/${fileId}`);
-        const encryptedBuffer = await (await res.blob()).arrayBuffer();
-        const keyBytes = new Uint8Array(aesMasterKeyStr.match(/.{1,2}/g).map(b => parseInt(b, 16)));
-        const aesKeyObj = await CryptoHelper.importAESKey(keyBytes);
-        const decryptedBuffer = await CryptoHelper.decryptFileChunk(aesKeyObj, encryptedBuffer);
-
-        const url = URL.createObjectURL(new Blob([decryptedBuffer]));
-        const a = document.createElement('a');
-        a.href = url; a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        const enc = await (await res.blob()).arrayBuffer();
+        const key = await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr));
+        const dec = await Crypto.decrypt(key, enc);
+        const url = URL.createObjectURL(new Blob([dec]));
+        const a = Object.assign(document.createElement('a'), { href:url, download:fileName });
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
         URL.revokeObjectURL(url);
-
         if (btn) btn.textContent = '✓ Done';
         saveHistory(fileName, fileSize, 'Received');
     } catch(e) {
         console.error(e);
-        if (btn) btn.textContent = 'Failed';
+        if (btn) btn.textContent = '✗ Failed';
     }
+}
+
+// ─── HELPERS ───
+function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(1) + ' MB';
+}
+
+function addFileToList(listId, id, name, size, actionHTML) {
+    const div = Object.assign(document.createElement('div'), { id, className:'file-item' });
+    div.innerHTML = `<div class="file-info"><span class="file-name">${name}</span><span class="file-meta">${fmtSize(size)}</span></div><div class="file-action">${actionHTML}</div>`;
+    document.getElementById(listId).appendChild(div);
+}
+
+function setFileStatus(id, html) {
+    const el = document.querySelector(`#${id} .file-action`);
+    if (el) el.innerHTML = html;
 }
 
 // ─── HISTORY ───
 function saveHistory(name, size, type) {
-    const h = JSON.parse(localStorage.getItem('transfer_history') || '[]');
+    const h = JSON.parse(localStorage.getItem('ls_history') || '[]');
     h.unshift({ name, size, type, date: new Date().toLocaleString() });
-    localStorage.setItem('transfer_history', JSON.stringify(h.slice(0, 50)));
+    localStorage.setItem('ls_history', JSON.stringify(h.slice(0,50)));
 }
 
 btnHistory.addEventListener('click', () => {
     ui.showScreen('screen-history');
-    const h = JSON.parse(localStorage.getItem('transfer_history') || '[]');
+    const h = JSON.parse(localStorage.getItem('ls_history') || '[]');
     const list = document.getElementById('history-list');
     list.innerHTML = '';
-    if (h.length === 0) {
-        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0">No transfers yet</p>';
+    if (!h.length) {
+        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;font-size:14px">No transfers yet</p>';
         return;
     }
-    h.forEach((item, i) => {
-        addFileToUI('history-list', 'hist-'+i, item.name, item.size,
-            `<span class="file-meta" style="color:${item.type==='Sent'?'var(--accent-primary)':'var(--success)'}">${item.type}</span>`
-        );
-    });
+    h.forEach((item, i) => addFileToList('history-list', `hist-${i}`, item.name, item.size,
+        `<span style="font-size:12px;font-weight:600;color:${item.type==='Sent'?'var(--accent-primary)':'var(--success)'}">${item.type}</span>`
+    ));
 });
 
-// ─── BOOTSTRAP ───
+// ─── BOOT ───
 init();
