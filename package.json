@@ -37,7 +37,12 @@
       "server.js",
       "afterPack.js",
       "public/**/*",
-      "package.json"
+      "package.json",
+      "node_modules/express/**/*",
+      "node_modules/multer/**/*",
+      "node_modules/socket.io/**/*",
+      "node_modules/nanoid/**/*",
+      "node_modules/uuid/**/*"
     ],
     "mac": {
       "icon": "build/icon.icns",

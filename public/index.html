@@ -1,16 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LocalShare - AirDrop Alternative</title>
     <link rel="icon" type="image/png" href="icon.png">
-    <!-- Use vanilla CSS for 100% offline support without CDN dependencies -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <div id="app" class="glass-panel">
-        
+
         <!-- Header -->
         <header>
             <div class="logo-icon">
@@ -19,9 +21,15 @@
                 </svg>
             </div>
             <h1>LocalShare</h1>
-            <button id="btn-history" class="icon-button" title="Transfer History">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            </button>
+            <div class="header-actions">
+                <button id="btn-theme" class="icon-button" title="Toggle Dark Mode">
+                    <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </button>
+                <button id="btn-history" class="icon-button" title="Transfer History">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
+            </div>
         </header>
 
         <!-- Main Content Area -->
@@ -36,13 +44,13 @@
                         <h2>Send Files</h2>
                         <p>Share with devices on this Wi-Fi</p>
                     </button>
-                    
+
                     <button id="btn-choice-receive" class="choice-card secondary">
                         <div class="icon-pulse static">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                         </div>
                         <h2>Receive Files</h2>
-                        <p>Enter a code to connect</p>
+                        <p>Enter a code or scan QR</p>
                     </button>
                 </div>
             </div>
@@ -50,13 +58,17 @@
             <!-- Screen 2: Send -->
             <div id="screen-send" class="screen flex-col">
                 <div class="session-info">
-                    <div class="code-display">
-                        <span class="label">PIN CODE</span>
+                    <div class="code-section">
+                        <span class="label">YOUR PIN CODE</span>
                         <div class="code-digits" id="my-session-code">------</div>
+                        <span class="label ip-label" id="sender-ip-display"></span>
                     </div>
-                    <div class="qr-display">
-                        <img id="qr-image" src="" alt="Scan to connect" style="display:none;" />
-                        <div id="qr-placeholder" class="loader"></div>
+                    <div class="qr-section">
+                        <span class="label">SCAN TO CONNECT</span>
+                        <div class="qr-wrapper">
+                            <canvas id="qr-canvas" width="100" height="100"></canvas>
+                            <div id="qr-placeholder" class="loader"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -67,9 +79,7 @@
                     <input type="file" id="file-input" multiple>
                 </div>
 
-                <div id="sender-file-list" class="file-list hidden">
-                    <!-- Files generated here -->
-                </div>
+                <div id="sender-file-list" class="file-list hidden"></div>
 
                 <button class="back-link" onclick="ui.showScreen('screen-choice')">← Cancel & Back</button>
             </div>
@@ -77,21 +87,31 @@
             <!-- Screen 3: Receive -->
             <div id="screen-receive" class="screen flex-col">
                 <div class="receive-form" id="receive-form">
-                    <h3>Enter 6-Digit PIN</h3>
-                    <div class="pin-inputs">
+                    <h3>Connect to Sender</h3>
+                    <p class="receive-subtitle">Enter the sender's IP address and the PIN shown on their screen</p>
+                    <div class="input-group">
+                        <label class="input-label">SENDER'S IP ADDRESS</label>
+                        <input type="text" id="ip-input" placeholder="e.g. 192.168.1.42" autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">6-DIGIT PIN CODE</label>
                         <input type="text" id="pin-input" maxlength="6" placeholder="• • • • • •" autocomplete="off">
                     </div>
                     <button id="btn-connect" class="action-btn">Connect</button>
+                    <div class="divider"><span>or</span></div>
+                    <button id="btn-scan-qr" class="action-btn secondary-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h4v-7h-7"/><path d="M14 21v-1"/></svg>
+                        Scan QR Code with Camera
+                    </button>
                 </div>
 
                 <div id="receiver-file-list" class="file-list hidden">
                     <div class="connection-status">
-                        <span class="status-dot online"></span> Connected
+                        <span class="status-dot online"></span> Connected to Session
                     </div>
-                    <!-- Files generated here -->
                 </div>
 
-                <button class="back-link" onclick="ui.showScreen('screen-choice')">← Cancel & Back</button>
+                <button class="back-link" onclick="disconnectAndGoBack()">← Cancel & Back</button>
             </div>
 
             <!-- Screen 4: History -->
@@ -103,6 +123,25 @@
                 <button class="back-link" onclick="ui.showScreen('screen-choice')">← Back to Menu</button>
             </div>
         </main>
+    </div>
+
+    <!-- QR Scanner Modal -->
+    <div id="qr-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Scan QR Code</h3>
+                <button id="btn-close-scanner" class="icon-button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="scanner-container">
+                <video id="qr-video" autoplay playsinline muted></video>
+                <div class="scanner-overlay">
+                    <div class="scanner-frame"></div>
+                </div>
+            </div>
+            <p class="scanner-hint">Pointez la caméra vers le QR code du sender</p>
+        </div>
     </div>
 
     <!-- Load Socket.IO locally (served by the node server itself) -->
