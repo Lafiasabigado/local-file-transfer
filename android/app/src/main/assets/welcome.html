@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LocalShare</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="file:///android_asset/style.css">
+</head>
+<body>
+    <div id="app" class="glass-panel">
+
+        <!-- Header — exact copy of desktop -->
+        <header>
+            <div class="logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                </svg>
+            </div>
+            <h1>LocalShare</h1>
+            <div class="header-actions">
+                <button id="btn-lang" class="icon-button lang-btn" title="Switch Language">
+                    <span id="lang-text">FR</span>
+                </button>
+                <button id="btn-refresh" class="icon-button" title="Refresh" style="margin-right: 4px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                </button>
+                <button id="btn-theme" class="icon-button" title="Toggle Dark Mode">
+                    <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+
+            <!-- Screen 1: Home — Send / Receive (same as desktop) -->
+            <div id="screen-choice" class="screen view-active">
+                <div class="split-choices">
+                    <button id="btn-choice-send" class="choice-card primary">
+                        <div class="icon-pulse">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        </div>
+                        <h2 data-i18n="send_title">Send Files</h2>
+                        <p data-i18n="send_desc">Share with devices on this Wi-Fi</p>
+                    </button>
+
+                    <button id="btn-choice-receive" class="choice-card secondary">
+                        <div class="icon-pulse static">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        </div>
+                        <h2 data-i18n="recv_title">Receive Files</h2>
+                        <p data-i18n="recv_desc">Enter a code</p>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 2: Connect to Server (appears when clicking Send OR Receive) -->
+            <div id="screen-connect" class="screen flex-col">
+                <div class="receive-form">
+                    <h3 id="connect-heading">Connect to PC</h3>
+                    <p class="receive-subtitle" id="connect-subtitle">Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.</p>
+                    <div class="input-group">
+                        <label class="input-label">IP ADDRESS</label>
+                        <input type="text" id="ip-input" placeholder="e.g. 192.168.1.42" autocomplete="off" autocorrect="off" autocapitalize="none">
+                    </div>
+                    <button id="btn-connect" class="action-btn">Connect</button>
+                </div>
+                <button class="back-link" id="btn-back">← Back</button>
+            </div>
+
+        </main>
+    </div>
+
+<script>
+// ─── STATE ───
+let currentLang = localStorage.getItem('lang') || 'EN';
+let pendingAction = null; // 'send' or 'receive'
+
+// ─── i18n ───
+const i18n = {
+    EN: {
+        send_title: "Send Files", send_desc: "Share with devices on this Wi-Fi",
+        recv_title: "Receive Files", recv_desc: "Enter a code",
+    },
+    FR: {
+        send_title: "Envoyer config", send_desc: "Partager sur ce Wi-Fi",
+        recv_title: "Recevoir Fichiers", recv_desc: "Saisir le code",
+    }
+};
+
+function setLanguage(lang) {
+    currentLang = lang;
+    localStorage.setItem('lang', lang);
+    document.getElementById('lang-text').innerText = lang;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (i18n[lang] && i18n[lang][key]) el.textContent = i18n[lang][key];
+    });
+}
+
+// ─── THEME ───
+(function initTheme() {
+    const saved = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+})();
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    const sunIcon  = document.getElementById('icon-sun');
+    const moonIcon = document.getElementById('icon-moon');
+    if (sunIcon)  sunIcon.style.display  = theme === 'dark' ? 'none'  : 'block';
+    if (moonIcon) moonIcon.style.display = theme === 'dark' ? 'block' : 'none';
+}
+
+// ─── SCREENS ───
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('view-active'));
+    document.getElementById(id).classList.add('view-active');
+}
+
+// ─── EVENT LISTENERS ───
+document.getElementById('btn-theme').addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
+
+document.getElementById('btn-lang').addEventListener('click', () => {
+    setLanguage(currentLang === 'EN' ? 'FR' : 'EN');
+});
+
+document.getElementById('btn-refresh').addEventListener('click', () => {
+    window.location.reload();
+});
+
+document.getElementById('btn-choice-send').addEventListener('click', () => {
+    pendingAction = 'send';
+    document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Se connecter au PC' : 'Connect to PC';
+    document.getElementById('connect-subtitle').textContent = currentLang === 'FR'
+        ? "Entrez l'adresse IP affichée sur l'écran LocalShare du PC. Les deux appareils doivent être sur le même Wi-Fi."
+        : "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.";
+    showScreen('screen-connect');
+});
+
+document.getElementById('btn-choice-receive').addEventListener('click', () => {
+    pendingAction = 'receive';
+    document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Se connecter au PC' : 'Connect to PC';
+    document.getElementById('connect-subtitle').textContent = currentLang === 'FR'
+        ? "Entrez l'adresse IP affichée sur l'écran LocalShare du PC. Les deux appareils doivent être sur le même Wi-Fi."
+        : "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.";
+    showScreen('screen-connect');
+});
+
+document.getElementById('btn-back').addEventListener('click', () => {
+    showScreen('screen-choice');
+});
+
+document.getElementById('btn-connect').addEventListener('click', () => {
+    const ip = document.getElementById('ip-input').value.trim();
+    if (!ip) {
+        document.getElementById('ip-input').style.borderColor = '#FF3B30';
+        return;
+    }
+    // Save IP for convenience
+    localStorage.setItem('last_ip', ip);
+    // Navigate to the real web app served by the desktop
+    const cleanIp = ip.replace('http://', '').replace('https://', '').trim();
+    const url = cleanIp.includes(':') ? 'http://' + cleanIp : 'http://' + cleanIp + ':3000';
+    window.location.href = url;
+});
+
+// Restore last IP
+const lastIp = localStorage.getItem('last_ip');
+if (lastIp) document.getElementById('ip-input').value = lastIp;
+
+// Init language
+document.getElementById('lang-text').innerText = currentLang;
+setLanguage(currentLang);
+</script>
+</body>
+</html>
