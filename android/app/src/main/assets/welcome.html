@@ -85,10 +85,20 @@ const i18n = {
     EN: {
         send_title: "Send Files", send_desc: "Share with devices on this Wi-Fi",
         recv_title: "Receive Files", recv_desc: "Enter a code",
+        no_network: "You are not connected to any Wi-Fi network. Please connect to the same network as the other device to transfer files.",
+        connect_send_heading: "Connect to network",
+        connect_send_sub: "Enter the IP address of the device running LocalShare. Your phone will create a session and display the PIN code for the other device.",
+        connect_recv_heading: "Connect to sender",
+        connect_recv_sub: "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.",
     },
     FR: {
-        send_title: "Envoyer config", send_desc: "Partager sur ce Wi-Fi",
+        send_title: "Envoyer Fichiers", send_desc: "Partager sur ce Wi-Fi",
         recv_title: "Recevoir Fichiers", recv_desc: "Saisir le code",
+        no_network: "Vous n'êtes connecté à aucun réseau Wi-Fi. Veuillez vous connecter au même réseau que l'autre appareil pour effectuer le transfert.",
+        connect_send_heading: "Se connecter au réseau",
+        connect_send_sub: "Entrez l'adresse IP de l'appareil qui exécute LocalShare. Votre téléphone créera une session et affichera le code PIN.",
+        connect_recv_heading: "Se connecter à l'expéditeur",
+        connect_recv_sub: "Entrez l'adresse IP affichée sur l'écran LocalShare de l'expéditeur. Les deux appareils doivent être sur le même Wi-Fi.",
     }
 };
 
@@ -124,6 +134,27 @@ function showScreen(id) {
     document.getElementById(id).classList.add('view-active');
 }
 
+// ─── NETWORK CHECK ───
+function checkNetwork() {
+    if (!navigator.onLine) {
+        const msg = i18n[currentLang].no_network;
+        document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Pas de réseau' : 'No Network';
+        document.getElementById('connect-subtitle').textContent = msg;
+        document.getElementById('connect-subtitle').style.color = '#FF3B30';
+        document.getElementById('ip-input').style.display = 'none';
+        document.getElementById('btn-connect').style.display = 'none';
+        document.querySelector('#screen-connect .input-group').style.display = 'none';
+        showScreen('screen-connect');
+        return false;
+    }
+    // Reset styles if online
+    document.getElementById('connect-subtitle').style.color = '';
+    document.getElementById('ip-input').style.display = '';
+    document.getElementById('btn-connect').style.display = '';
+    document.querySelector('#screen-connect .input-group').style.display = '';
+    return true;
+}
+
 // ─── EVENT LISTENERS ───
 document.getElementById('btn-theme').addEventListener('click', () => {
     applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
@@ -138,20 +169,18 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
 });
 
 document.getElementById('btn-choice-send').addEventListener('click', () => {
+    if (!checkNetwork()) return;
     pendingAction = 'send';
-    document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Se connecter au PC' : 'Connect to PC';
-    document.getElementById('connect-subtitle').textContent = currentLang === 'FR'
-        ? "Entrez l'adresse IP affichée sur l'écran LocalShare du PC. Les deux appareils doivent être sur le même Wi-Fi."
-        : "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.";
+    document.getElementById('connect-heading').textContent = i18n[currentLang].connect_send_heading;
+    document.getElementById('connect-subtitle').textContent = i18n[currentLang].connect_send_sub;
     showScreen('screen-connect');
 });
 
 document.getElementById('btn-choice-receive').addEventListener('click', () => {
+    if (!checkNetwork()) return;
     pendingAction = 'receive';
-    document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Se connecter au PC' : 'Connect to PC';
-    document.getElementById('connect-subtitle').textContent = currentLang === 'FR'
-        ? "Entrez l'adresse IP affichée sur l'écran LocalShare du PC. Les deux appareils doivent être sur le même Wi-Fi."
-        : "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.";
+    document.getElementById('connect-heading').textContent = i18n[currentLang].connect_recv_heading;
+    document.getElementById('connect-subtitle').textContent = i18n[currentLang].connect_recv_sub;
     showScreen('screen-connect');
 });
 
@@ -165,12 +194,11 @@ document.getElementById('btn-connect').addEventListener('click', () => {
         document.getElementById('ip-input').style.borderColor = '#FF3B30';
         return;
     }
-    // Save IP for convenience
     localStorage.setItem('last_ip', ip);
-    // Navigate to the real web app served by the desktop
     const cleanIp = ip.replace('http://', '').replace('https://', '').trim();
-    const url = cleanIp.includes(':') ? 'http://' + cleanIp : 'http://' + cleanIp + ':3000';
-    window.location.href = url;
+    const base = cleanIp.includes(':') ? 'http://' + cleanIp : 'http://' + cleanIp + ':3000';
+    // Navigate to the real web app with automode so it goes straight to Send or Receive
+    window.location.href = base + '/#automode=' + pendingAction;
 });
 
 // Restore last IP

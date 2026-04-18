@@ -62,7 +62,7 @@ const i18n = {
         cancel_back: "← Cancel & Back", history_title: "Transfer History"
     },
     FR: {
-        send_title: "Envoyer config", send_desc: "Partager sur ce Wi-Fi",
+        send_title: "Envoyer Fichiers", send_desc: "Partager sur ce Wi-Fi",
         recv_title: "Recevoir Fichiers", recv_desc: "Saisir le code",
         your_pin: "VOTRE CODE PIN", scan_to_connect: "SCANNEZ POUR REJOINDRE",
         drop_title: "Déposez vos fichiers", drop_desc: "ou cliquez pour parcourir",
@@ -232,9 +232,27 @@ async function init() {
     socket = io(window.location.origin);
     setupSocketListeners(socket);
 
-    // QR hash deep-link (phone scanning the QR code in browser)
+    // Hash deep-link handling
     if (window.location.hash) {
         const p = new URLSearchParams(window.location.hash.slice(1));
+
+        // Mobile app auto-mode: navigate directly to Send or Receive
+        const automode = p.get('automode');
+        if (automode === 'send') {
+            // Clear the hash so it doesn't re-trigger on refresh
+            history.replaceState(null, '', window.location.pathname);
+            // Auto-click Send
+            setTimeout(() => btnSend.click(), 300);
+            return;
+        }
+        if (automode === 'receive') {
+            history.replaceState(null, '', window.location.pathname);
+            // Show receive screen directly
+            ui.showScreen('screen-receive');
+            return;
+        }
+
+        // Legacy QR hash deep-link
         const session = p.get('session'), key = p.get('key'), ip = p.get('ip');
         if (session && key && ip) {
             isSender = false;
