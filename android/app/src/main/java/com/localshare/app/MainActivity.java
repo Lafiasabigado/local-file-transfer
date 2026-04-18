@@ -6,13 +6,9 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.*;
 import android.widget.*;
@@ -31,7 +27,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Full-screen WebView
         webView = new WebView(this);
         webView.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -39,7 +34,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(webView);
 
         setupWebView();
-        showConnectDialog();
+        promptForIp();
     }
 
     private void setupWebView() {
@@ -52,7 +47,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setUserAgentString(settings.getUserAgentString() + " LocalShare-Android/1.0");
 
-        // Handle camera permissions from web (for QR scanner)
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
@@ -71,8 +65,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean onShowFileChooser(WebView wv, ValueCallback<Uri[]> callback,
                     FileChooserParams params) {
-                // Not needed for this app but good practice
-                callback.onReceiveValue(null);
+                // Let the system handle file chooser for file uploads
                 return false;
             }
         });
@@ -89,74 +82,75 @@ public class MainActivity extends AppCompatActivity {
                 request.addRequestHeader("User-Agent", userAgent);
                 DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
                 if (dm != null) dm.enqueue(request);
-                Toast.makeText(this, "Downloading: " + fileName, Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "Downloading: " + fileName, Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "Download failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                Toast.makeText(MainActivity.this, "Download failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         });
 
-        // Show errors nicely
+        // Show errors — offer to re-enter IP
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request,
                     WebResourceError error) {
                 if (request.isForMainFrame()) {
-                    String errHtml = buildErrorPage(
-                            webView.getUrl(),
-                            error.getDescription().toString()
+                    view.loadData(
+                        "<html><body style='font-family:sans-serif;display:flex;flex-direction:column;" +
+                        "align-items:center;justify-content:center;min-height:100vh;margin:0;" +
+                        "background:#0d0f14;color:#f0f2f5;text-align:center;padding:24px;'>" +
+                        "<h2 style='color:#FF3B30;'>Cannot connect</h2>" +
+                        "<p style='color:#9ca3af;font-size:14px;'>Make sure LocalShare is running on the PC and both devices are on the same Wi-Fi.</p>" +
+                        "<button onclick='window.location.reload()' style='margin-top:24px;padding:14px 32px;" +
+                        "border:none;border-radius:12px;background:#0A84FF;color:white;font-size:15px;" +
+                        "font-weight:600;cursor:pointer;'>Retry</button>" +
+                        "</body></html>",
+                        "text/html", "UTF-8"
                     );
-                    webView.loadData(errHtml, "text/html", "UTF-8");
                 }
             }
         });
     }
 
-    private void showConnectDialog() {
-        webView.getSettings().setJavaScriptEnabled(true);
-        // Expose Android context to JavaScript
-        webView.addJavascriptInterface(new Object() {
-            @JavascriptInterface
-            public void connect(String ip) {
-                SharedPreferences prefs = getPreferences(Context.MODE_PRIVATE);
-                prefs.edit().putString(PREF_LAST_IP, ip).apply();
-                runOnUiThread(() -> loadServer(ip));
-            }
-        }, "Android");
+    /**
+     * Simple native dialog to get the server IP.
+     * Once connected, the WebView loads the EXACT same web app as the desktop.
+     */
+    private void promptForIp() {
+        SharedPreferences prefs = getPreferences(Context.MODE_PRIVATE);
+        String lastIp = prefs.getString(PREF_LAST_IP, "");
 
-        // Load beautiful local HTML instead of native dialog
-        webView.loadUrl("file:///android_asset/welcome.html");
+        EditText input = new EditText(this);
+        input.setHint("e.g. 192.168.1.42");
+        input.setText(lastIp);
+        input.setSelectAllOnFocus(true);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        input.setPadding(48, 32, 48, 32);
+
+        new AlertDialog.Builder(this)
+            .setTitle("LocalShare")
+            .setMessage("Enter the IP Address shown on the sender's PC screen.\nBoth devices must be on the same Wi-Fi.")
+            .setView(input)
+            .setCancelable(false)
+            .setPositiveButton("Connect", (dialog, which) -> {
+                String ip = input.getText().toString().trim();
+                if (ip.isEmpty()) {
+                    Toast.makeText(this, "Please enter an IP address", Toast.LENGTH_SHORT).show();
+                    promptForIp();
+                    return;
+                }
+                prefs.edit().putString(PREF_LAST_IP, ip).apply();
+                loadServer(ip);
+            })
+            .show();
     }
 
     private void loadServer(String ip) {
-        // Sanitize: remove http:// if user typed it
         ip = ip.replace("http://", "").replace("https://", "").trim();
         if (!ip.contains(":")) {
             ip = ip + ":3000";
         }
-        String url = "http://" + ip;
-        webView.loadUrl(url);
-    }
-
-    private String buildErrorPage(String url, String error) {
-        return "<!DOCTYPE html><html><head>"
-                + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                + "<style>body{font-family:sans-serif;display:flex;flex-direction:column;"
-                + "align-items:center;justify-content:center;min-height:100vh;margin:0;"
-                + "background:#f0f4f8;color:#1a1d23;padding:20px;text-align:center;}"
-                + "h2{color:#FF3B30;font-size:20px;margin-bottom:16px;}"
-                + "p{color:#6b7280;font-size:14px;line-height:1.6;max-width:280px;}"
-                + "button{margin-top:24px;padding:14px 28px;border:none;border-radius:12px;"
-                + "background:#0A84FF;color:white;font-size:15px;font-weight:600;cursor:pointer;}"
-                + "</style></head><body>"
-                + "<h2>⚠️ Cannot connect</h2>"
-                + "<p>Could not reach the LocalShare server.</p>"
-                + "<p style='font-family:monospace;font-size:12px;background:#e5e7eb;"
-                + "padding:8px 12px;border-radius:8px;margin-top:8px;'>" + url + "</p>"
-                + "<p>Make sure:<br>• Both devices are on the <b>same Wi-Fi</b><br>"
-                + "• LocalShare is <b>running</b> on the sender's PC<br>"
-                + "• The <b>IP address</b> is correct</p>"
-                + "<button onclick='Android.showDialog()'>Try another IP</button>"
-                + "</body></html>";
+        webView.loadUrl("http://" + ip);
     }
 
     @Override
@@ -167,7 +161,6 @@ public class MainActivity extends AppCompatActivity {
                 pendingPermissionRequest.grant(pendingPermissionRequest.getResources());
             } else {
                 pendingPermissionRequest.deny();
-                Toast.makeText(this, "Camera permission needed for QR scanning", Toast.LENGTH_SHORT).show();
             }
             pendingPermissionRequest = null;
         }
@@ -178,7 +171,7 @@ public class MainActivity extends AppCompatActivity {
         if (webView.canGoBack()) {
             webView.goBack();
         } else {
-            showConnectDialog();
+            promptForIp();
         }
     }
 }

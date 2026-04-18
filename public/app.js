@@ -148,35 +148,7 @@ const Crypto = {
     fromHex: (hex) => new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)))
 };
 
-// ─── QR RENDERING ───
-// qrcode.min.js is loaded via <script> in HTML — no dynamic loading needed
-function drawQR(canvas, text) {
-    const placeholder = document.getElementById('qr-placeholder');
-    if (typeof qrcode === 'undefined') {
-        // Fallback: hide loader, show nothing
-        if (placeholder) placeholder.style.display = 'none';
-        return;
-    }
-    try {
-        if (placeholder) placeholder.style.display = 'none';
-        canvas.style.display = 'block';
-        const qr = qrcode(0, 'L');
-        qr.addData(text);
-        qr.make();
-        const ctx = canvas.getContext('2d');
-        const sz = canvas.width;
-        const mc = qr.getModuleCount();
-        const ms = Math.floor(sz / mc);
-        const off = Math.floor((sz - mc * ms) / 2);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, sz, sz);
-        ctx.fillStyle = '#000';
-        for (let r = 0; r < mc; r++)
-            for (let c = 0; c < mc; c++)
-                if (qr.isDark(r, c))
-                    ctx.fillRect(off + c*ms, off + r*ms, ms, ms);
-    } catch(e) { console.warn('QR render failed', e); }
-}
+
 
 // ─── SOCKET MANAGEMENT ───
 function setupSocketListeners(sock) {
