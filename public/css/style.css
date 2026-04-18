@@ -498,9 +498,29 @@ main {
 ::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 2px; }
 
 @media (max-width: 480px) {
+    body {
+        overflow: visible;
+        min-height: 100vh;
+        height: 100vh;
+    }
     .glass-panel {
-        width: 100vw; height: 100%; border-radius: 0; border: none; padding: 20px 16px;
-        overflow-x: hidden;
+        width: 100vw;
+        height: 100vh;
+        max-height: none;
+        border-radius: 0;
+        border: none;
+        padding: 0;
+        overflow: hidden;
+    }
+    header {
+        padding: 16px 16px;
+    }
+    main {
+        flex: 1;
+        overflow: hidden;
+    }
+    .screen {
+        padding: 20px 16px;
     }
     .header-actions {
         display: flex;
@@ -515,6 +535,7 @@ main {
     .icon-pulse { width: 52px; height: 52px; margin-bottom: 12px; }
     .icon-pulse svg { width: 24px; height: 24px; }
     .choice-card h2 { font-size: 18px; }
+    .choice-card { padding: 20px; }
     
     .file-item {
         flex-direction: column;
