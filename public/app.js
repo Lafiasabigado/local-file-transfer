@@ -206,6 +206,35 @@ const Crypto = {
 
 
 // ─── SOCKET MANAGEMENT ───
+// Wrapper to emulate socket.io behavior using standard WebSockets
+function createSocket(url) {
+    const wsUrl = url.replace(/^http/, 'ws');
+    const ws = new WebSocket(wsUrl);
+    const handlers = {};
+
+    ws.on = (event, callback) => {
+        handlers[event] = callback;
+    };
+
+    ws.emit = (event, data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ event, data }));
+        }
+    };
+
+    ws.off = () => {}; // Clear handlers if needed
+    ws.disconnect = () => ws.close();
+
+    ws.addEventListener('message', (msg) => {
+        try {
+            const { event, data } = JSON.parse(msg.data);
+            if (handlers[event]) handlers[event](data);
+        } catch (e) {}
+    });
+
+    return ws;
+}
+
 function setupSocketListeners(sock) {
     sock.on('files-updated', (files) => {
         sessionFiles = files;
@@ -230,10 +259,10 @@ function connectToServer(serverIP) {
         if (socket) { socket.off(); socket.disconnect(); socket = null; }
 
         API_BASE = serverIP ? `http://${serverIP}:3000` : window.location.origin;
-        const s = io(API_BASE, { timeout: 5000, reconnection: false });
+        const s = createSocket(API_BASE);
 
-        s.on('connect', () => { socket = s; setupSocketListeners(s); resolve(s); });
-        s.on('connect_error', (err) => reject(err));
+        s.addEventListener('open', () => { socket = s; setupSocketListeners(s); resolve(s); });
+        s.addEventListener('error', (err) => reject(err));
         // Timeout fallback
         setTimeout(() => reject(new Error('Connection timeout')), 6000);
     });
@@ -284,7 +313,7 @@ async function handleSignal(data) {
 // ─── INIT ───
 async function init() {
     // Initial connection to own server (sender mode)
-    socket = io(window.location.origin);
+    socket = createSocket(window.location.origin);
     setupSocketListeners(socket);
 
     // Hash deep-link handling
@@ -315,7 +344,7 @@ async function init() {
             aesMasterKeyStr = key;
             if (ip !== window.location.hostname) {
                 socket.off(); socket.disconnect();
-                socket = io(`http://${ip}:3000`);
+                socket = createSocket(`http://${ip}:3000`);
                 setupSocketListeners(socket);
             }
             ui.showScreen('screen-receive');
@@ -413,7 +442,7 @@ function disconnectAndGoBack() {
     clearStatus(); setConnectLoading(false);
     // Reconnect to own server
     if (socket) { socket.off(); socket.disconnect(); }
-    socket = io(window.location.origin);
+    socket = createSocket(window.location.origin);
     setupSocketListeners(socket);
     ui.showScreen('screen-choice');
 }

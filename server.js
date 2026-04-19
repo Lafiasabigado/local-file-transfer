@@ -1,6 +1,6 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const { WebSocketServer } = require('ws');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -26,7 +26,7 @@ function getLocalIp() {
 function startServer(preferredPort = 3000) {
     const app = express();
     const server = http.createServer(app);
-    const io = new Server(server, { cors: { origin: '*' }});
+    const wss = new WebSocketServer({ server });
 
     // Ensure uploads directory exists and is clean
     if (!fs.existsSync(UPLOADS_DIR)) {
@@ -91,7 +91,7 @@ function startServer(preferredPort = 3000) {
                     fs.unlinkSync(fileData.path);
                     if(sessions[code]) {
                         sessions[code].files = sessions[code].files.filter(f => f.id !== fileData.id);
-                        io.to(code).emit('files-updated', sessions[code].files);
+                        broadcastToRoom(code, 'files-updated', sessions[code].files);
                     }
                 }
             }, FILE_TIMEOUT);
@@ -99,7 +99,7 @@ function startServer(preferredPort = 3000) {
             return fileData;
         });
 
-        io.to(code).emit('files-updated', sessions[code].files);
+        broadcastToRoom(code, 'files-updated', sessions[code].files);
         res.json({ success: true, files: uploadedFiles });
     });
 
@@ -122,25 +122,53 @@ function startServer(preferredPort = 3000) {
         res.download(file.path, file.name);
     });
 
-    // Socket.io for real-time join & ECDH signaling
-    io.on('connection', (socket) => {
-        socket.on('join-session', (code) => {
-            if (sessions[code]) {
-                socket.join(code);
-                socket.emit('files-updated', sessions[code].files);
-                socket.to(code).emit('peer-joined', socket.id);
-            } else {
-                socket.emit('session-error', 'Invalid Session');
+    // WebSocket for real-time join & ECDH signaling
+    // Room management
+    const clientRooms = new Map(); // ws -> code
+
+    function broadcastToRoom(code, event, data, senderWs = null) {
+        wss.clients.forEach(client => {
+            if (client.readyState === 1 && clientRooms.get(client) === code && client !== senderWs) {
+                client.send(JSON.stringify({ event, data }));
+            }
+        });
+    }
+
+    wss.on('connection', (ws) => {
+        ws.on('message', (message) => {
+            try {
+                const parsed = JSON.parse(message);
+                const event = parsed.event;
+                const data = parsed.data;
+
+                if (event === 'join-session') {
+                    const code = data;
+                    if (sessions[code]) {
+                        clientRooms.set(ws, code);
+                        ws.send(JSON.stringify({ event: 'files-updated', data: sessions[code].files }));
+                        // Notify others in room
+                        broadcastToRoom(code, 'peer-joined', null, ws);
+                    } else {
+                        ws.send(JSON.stringify({ event: 'session-error', data: 'Invalid Session' }));
+                    }
+                } 
+                else if (event === 'leave-session') {
+                    clientRooms.delete(ws);
+                } 
+                else if (event === 'signal') {
+                    // Universal signaling for ECDH Security
+                    const code = data.code;
+                    if (code && clientRooms.get(ws) === code) {
+                        broadcastToRoom(code, 'signal', data, ws);
+                    }
+                }
+            } catch (err) {
+                console.warn('WS parsing error:', err);
             }
         });
 
-        socket.on('leave-session', (code) => {
-            socket.leave(code);
-        });
-
-        // Universal signaling for ECDH Security
-        socket.on('signal', (data) => {
-            socket.to(data.code).emit('signal', data);
+        ws.on('close', () => {
+            clientRooms.delete(ws);
         });
     });
 

@@ -25,6 +25,7 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
+import fi.iki.elonen.NanoHTTPD;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -32,7 +33,10 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private PermissionRequest pendingPermissionRequest;
     private static final int CAMERA_PERMISSION_CODE = 101;
-    private static final String WELCOME_URL = "file:///android_asset/welcome.html";
+    private static final String APP_URL = "http://localhost:3000";
+
+    // Local Server
+    private LocalServer localServer;
 
     // NSD (mDNS) discovery
     private NsdManager nsdManager;
@@ -40,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile String discoveredIp = "";
     private volatile int discoveredPort = 3000;
     private volatile boolean isDiscovering = false;
+    private NsdManager.RegistrationListener registrationListener;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -55,7 +60,17 @@ public class MainActivity extends AppCompatActivity {
         nsdManager = (NsdManager) getSystemService(Context.NSD_SERVICE);
         webView.addJavascriptInterface(new WebAppInterface(this), "AndroidHost");
         setupWebView();
-        webView.loadUrl(WELCOME_URL);
+
+        try {
+            localServer = new LocalServer(this, 3000);
+            localServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false);
+            Log.d(TAG, "LocalServer started on port 3000");
+            registerNsdService(3000);
+        } catch (Exception e) {
+            Log.e(TAG, "Could not start local server", e);
+        }
+
+        webView.loadUrl(APP_URL);
     }
 
     // ─── JavaScript Bridge ───
@@ -193,6 +208,36 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void registerNsdService(int port) {
+        if (nsdManager == null) return;
+        
+        NsdServiceInfo serviceInfo = new NsdServiceInfo();
+        serviceInfo.setServiceName("LocalShare");
+        serviceInfo.setServiceType("_localshare._tcp.");
+        serviceInfo.setPort(port);
+
+        registrationListener = new NsdManager.RegistrationListener() {
+            @Override
+            public void onServiceRegistered(NsdServiceInfo NsdServiceInfo) {
+                Log.d(TAG, "NSD registered: " + NsdServiceInfo.getServiceName());
+            }
+            @Override
+            public void onRegistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
+                Log.e(TAG, "NSD register failed: " + errorCode);
+            }
+            @Override
+            public void onServiceUnregistered(NsdServiceInfo arg0) {}
+            @Override
+            public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {}
+        };
+
+        try {
+            nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, registrationListener);
+        } catch (Exception e) {
+            Log.e(TAG, "NSD registerService error", e);
+        }
+    }
+
     private void stopDiscoverySafe() {
         if (isDiscovering && discoveryListener != null && nsdManager != null) {
             try {
@@ -264,7 +309,7 @@ public class MainActivity extends AppCompatActivity {
                         "<h2 style='color:#FF3B30;font-size:20px;'>Cannot connect</h2>" +
                         "<p style='color:#9ca3af;font-size:14px;line-height:1.6;max-width:280px;'>" +
                         "Make sure LocalShare is running on the PC and both devices are on the same Wi-Fi.</p>" +
-                        "<button onclick=\"window.location.href='" + WELCOME_URL + "'\" " +
+                        "<button onclick=\"window.location.href='" + APP_URL + "'\" " +
                         "style='margin-top:24px;padding:14px 32px;border:none;border-radius:12px;" +
                         "background:#0A84FF;color:white;font-size:15px;font-weight:600;cursor:pointer;'>" +
                         "Back to Home</button></body></html>",
@@ -290,8 +335,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         String currentUrl = webView.getUrl();
-        if (currentUrl != null && !currentUrl.startsWith("file:///")) {
-            webView.loadUrl(WELCOME_URL);
+        if (currentUrl != null && !currentUrl.startsWith("http://localhost")) {
+            webView.loadUrl(APP_URL);
         } else if (webView.canGoBack()) {
             webView.goBack();
         } else {
@@ -302,6 +347,12 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         stopDiscoverySafe();
+        if (nsdManager != null && registrationListener != null) {
+            try { nsdManager.unregisterService(registrationListener); } catch (Exception e) {}
+        }
+        if (localServer != null) {
+            localServer.stop();
+        }
         super.onDestroy();
     }
 }
