@@ -34,6 +34,7 @@
         </header>
 
         <main id="main-content">
+
             <!-- Screen 1: Home — Send / Receive -->
             <div id="screen-choice" class="screen view-active">
                 <div class="split-choices">
@@ -54,25 +55,39 @@
                 </div>
             </div>
 
-            <!-- Screen 2: Enter server IP -->
+            <!-- Screen 2: Scanning / Manual IP -->
             <div id="screen-connect" class="screen flex-col">
                 <div class="receive-form">
-                    <h3 id="connect-heading" data-i18n="connect_heading">Connect to PC</h3>
-                    <p class="receive-subtitle" id="connect-subtitle" data-i18n="connect_sub">Enter the IP address shown on the PC running LocalShare.</p>
-                    <div class="input-group" id="ip-input-group">
-                        <label class="input-label" data-i18n="ip_label">IP ADDRESS</label>
-                        <input type="text" id="ip-input" placeholder="e.g. 192.168.1.42" autocomplete="off" autocorrect="off" autocapitalize="none">
+                    <!-- Scanning animation (shown during mDNS scan) -->
+                    <div id="scan-box" style="text-align:center;padding:20px 0;">
+                        <div id="scan-spinner" style="width:48px;height:48px;border:3px solid var(--glass-border);border-top-color:var(--accent-primary);border-radius:50%;margin:0 auto 16px;animation:spin 0.8s linear infinite;"></div>
+                        <h3 id="scan-title" data-i18n="scanning">Searching for devices…</h3>
+                        <p id="scan-sub" style="color:var(--text-secondary);font-size:13px;margin-top:6px;" data-i18n="scanning_sub">Scanning your network</p>
                     </div>
-                    <button id="btn-connect" class="action-btn" data-i18n="connect_btn">Connect</button>
-                    <p id="connect-status" style="font-size:13px;line-height:1.6;margin-top:12px;padding:12px;border-radius:10px;display:none;white-space:pre-line;"></p>
+
+                    <!-- Manual IP fallback (shown after scan fails) -->
+                    <div id="manual-box" style="display:none;">
+                        <h3 data-i18n="manual_heading">Enter IP manually</h3>
+                        <p class="receive-subtitle" data-i18n="manual_sub">Could not find LocalShare on this network. Enter the IP address shown on the PC.</p>
+                        <div class="input-group">
+                            <label class="input-label" data-i18n="ip_label">IP ADDRESS</label>
+                            <input type="text" id="ip-input" placeholder="e.g. 192.168.1.42" autocomplete="off" autocorrect="off" autocapitalize="none">
+                        </div>
+                        <button id="btn-connect" class="action-btn" data-i18n="connect_btn">Connect</button>
+                        <p id="connect-status" style="font-size:13px;line-height:1.6;margin-top:12px;padding:12px;border-radius:10px;display:none;white-space:pre-line;"></p>
+                    </div>
                 </div>
                 <button class="back-link" id="btn-back" data-i18n="back_btn">← Back</button>
             </div>
+
         </main>
     </div>
 
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
 <script>
-// ─── STATE ───
 let currentLang = localStorage.getItem('lang') || 'EN';
 let pendingAction = null;
 
@@ -80,21 +95,25 @@ const i18n = {
     EN: {
         send_title: "Send Files", send_desc: "Share with devices on this Wi-Fi",
         recv_title: "Receive Files", recv_desc: "Enter a code",
-        connect_heading: "Connect to PC",
-        connect_sub: "Enter the IP address shown on the PC running LocalShare. Both devices must be on the same network.",
+        scanning: "Searching for devices…", scanning_sub: "Scanning your network",
+        pc_found: "PC found! Connecting…",
+        manual_heading: "Enter IP manually",
+        manual_sub: "Could not find LocalShare automatically. Enter the IP shown on the PC running LocalShare.",
         ip_label: "IP ADDRESS", connect_btn: "Connect", connecting_btn: "Connecting…",
         back_btn: "← Back",
-        no_network: "You are not connected to any network.\nConnect to Wi-Fi or enable a hotspot.",
+        no_network: "No network detected. Connect to Wi-Fi or enable a hotspot.",
         connect_error: "Cannot reach server. Check that LocalShare is running and both devices are on the same network.",
     },
     FR: {
         send_title: "Envoyer Fichiers", send_desc: "Partager sur ce Wi-Fi",
         recv_title: "Recevoir Fichiers", recv_desc: "Saisir le code",
-        connect_heading: "Se connecter au PC",
-        connect_sub: "Entrez l'adresse IP affichée sur le PC qui exécute LocalShare. Les deux appareils doivent être sur le même réseau.",
+        scanning: "Recherche des appareils…", scanning_sub: "Scan du réseau en cours",
+        pc_found: "PC trouvé ! Connexion…",
+        manual_heading: "Entrer l'IP manuellement",
+        manual_sub: "Impossible de trouver LocalShare automatiquement. Entrez l'IP affichée sur le PC qui exécute LocalShare.",
         ip_label: "ADRESSE IP", connect_btn: "Connexion", connecting_btn: "Connexion…",
         back_btn: "← Retour",
-        no_network: "Vous n'êtes connecté à aucun réseau.\nConnectez-vous au Wi-Fi ou activez un partage de connexion.",
+        no_network: "Aucun réseau détecté. Connectez-vous au Wi-Fi ou activez un partage de connexion.",
         connect_error: "Impossible de joindre le serveur. Vérifiez que LocalShare est lancé et que les appareils sont sur le même réseau.",
     }
 };
@@ -111,7 +130,6 @@ function setLanguage(lang) {
     });
 }
 
-// ─── THEME ───
 (function initTheme() {
     const saved = localStorage.getItem('theme');
     applyTheme(saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -129,77 +147,94 @@ function showScreen(id) {
     document.getElementById(id).classList.add('view-active');
 }
 
-// ─── RELIABLE SERVER PING — fetch actual API endpoint ───
-function pingServer(ip) {
+// ─── NAVIGATE TO SERVER ───
+function goToServer(ip, port, action) {
+    localStorage.setItem('last_ip', ip);
+    window.location.href = 'http://' + ip + ':' + port + '/#automode=' + action + '&lang=' + currentLang;
+}
+
+// ─── mDNS SCAN: poll AndroidHost.getDiscoveredServer() ───
+function pollDiscovery(timeoutMs) {
     return new Promise((resolve) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => { controller.abort(); resolve(false); }, 2500);
-        fetch('http://' + ip + ':3000/api/session', { signal: controller.signal })
-            .then(r => { clearTimeout(timer); resolve(r.ok); })
-            .catch(() => { clearTimeout(timer); resolve(false); });
+        const start = Date.now();
+        const interval = setInterval(() => {
+            if (window.AndroidHost) {
+                const server = window.AndroidHost.getDiscoveredServer();
+                if (server) {
+                    clearInterval(interval);
+                    resolve(server); // "ip:port"
+                    return;
+                }
+            }
+            if (Date.now() - start > timeoutMs) {
+                clearInterval(interval);
+                resolve(null);
+            }
+        }, 250);
     });
 }
 
-// ─── NAVIGATE TO SERVER ───
-function goToServer(ip, action) {
-    localStorage.setItem('last_ip', ip);
-    window.location.href = 'http://' + ip + ':3000/#automode=' + action + '&lang=' + currentLang;
-}
-
-// ─── STATUS ───
-function showStatus(msg, type) {
-    const el = document.getElementById('connect-status');
-    el.textContent = msg; el.style.display = 'block';
-    el.style.color = type === 'error' ? '#FF3B30' : '#34C759';
-    el.style.background = type === 'error' ? 'rgba(255,59,48,0.08)' : 'rgba(52,199,89,0.08)';
-    el.style.border = '1px solid ' + (type === 'error' ? 'rgba(255,59,48,0.2)' : 'rgba(52,199,89,0.2)');
-}
-function hideStatus() { document.getElementById('connect-status').style.display = 'none'; }
-
-// ─── MAIN ACTION (Send / Receive click) ───
+// ─── MAIN ACTION ───
 async function handleActionClick(action) {
     pendingAction = action;
 
-    // Check network via Android bridge
-    let deviceIp = '';
+    // Check network
+    let hasNetwork = navigator.onLine;
     if (window.AndroidHost && typeof window.AndroidHost.getDeviceIp === 'function') {
-        deviceIp = window.AndroidHost.getDeviceIp();
+        hasNetwork = !!window.AndroidHost.getDeviceIp();
     }
-    if (!deviceIp && !navigator.onLine) {
+    if (!hasNetwork) {
         alert(t('no_network'));
         return;
     }
 
-    // Try auto-discovery silently
-    const btn = action === 'send' ? document.getElementById('btn-choice-send') : document.getElementById('btn-choice-receive');
-    const oldText = btn.querySelector('h2').textContent;
-    btn.querySelector('h2').textContent = t('connecting_btn');
-    btn.disabled = true;
-
-    // Candidates: last known IP, then gateway
-    const candidates = [];
-    const lastIp = localStorage.getItem('last_ip');
-    if (lastIp) candidates.push(lastIp);
-    if (window.AndroidHost && typeof window.AndroidHost.getGatewayIp === 'function') {
-        const gw = window.AndroidHost.getGatewayIp();
-        if (gw && gw !== '0.0.0.0' && !candidates.includes(gw)) candidates.push(gw);
-    }
-
-    for (const ip of candidates) {
-        const ok = await pingServer(ip);
-        if (ok) {
-            btn.querySelector('h2').textContent = oldText;
-            btn.disabled = false;
-            goToServer(ip, action);
-            return;
-        }
-    }
-
-    // Auto-discovery failed → show manual IP input
-    btn.querySelector('h2').textContent = oldText;
-    btn.disabled = false;
-    hideStatus();
+    // Show scanning screen
+    document.getElementById('scan-box').style.display = '';
+    document.getElementById('manual-box').style.display = 'none';
     showScreen('screen-connect');
+
+    // Start mDNS discovery
+    if (window.AndroidHost && typeof window.AndroidHost.startDiscovery === 'function') {
+        window.AndroidHost.startDiscovery();
+    }
+
+    // Wait up to 6 seconds for mDNS result
+    const result = await pollDiscovery(6000);
+
+    if (result) {
+        // PC found via mDNS!
+        const parts = result.split(':');
+        const ip = parts[0];
+        const port = parts[1] || '3000';
+        document.getElementById('scan-title').textContent = t('pc_found');
+        document.getElementById('scan-spinner').style.borderTopColor = '#34C759';
+        setTimeout(() => goToServer(ip, port, action), 500);
+        return;
+    }
+
+    // mDNS failed → try last known IP as fallback
+    const lastIp = localStorage.getItem('last_ip');
+    if (lastIp) {
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 2000);
+            const resp = await fetch('http://' + lastIp + ':3000/api/session', { signal: controller.signal });
+            clearTimeout(timer);
+            if (resp.ok) {
+                document.getElementById('scan-title').textContent = t('pc_found');
+                document.getElementById('scan-spinner').style.borderTopColor = '#34C759';
+                setTimeout(() => goToServer(lastIp, '3000', action), 500);
+                return;
+            }
+        } catch(e) { /* fallback failed */ }
+    }
+
+    // All auto-discovery failed → show manual IP input
+    if (window.AndroidHost && typeof window.AndroidHost.stopDiscovery === 'function') {
+        window.AndroidHost.stopDiscovery();
+    }
+    document.getElementById('scan-box').style.display = 'none';
+    document.getElementById('manual-box').style.display = '';
 }
 
 // ─── MANUAL CONNECT ───
@@ -212,16 +247,27 @@ async function handleManualConnect() {
     const connectBtn = document.getElementById('btn-connect');
     connectBtn.textContent = t('connecting_btn');
     connectBtn.disabled = true;
-    hideStatus();
+    document.getElementById('connect-status').style.display = 'none';
 
-    const ok = await pingServer(ip);
-    if (ok) {
-        goToServer(ip, pendingAction);
-    } else {
-        connectBtn.textContent = t('connect_btn');
-        connectBtn.disabled = false;
-        showStatus(t('connect_error'), 'error');
-    }
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const resp = await fetch('http://' + ip + ':3000/api/session', { signal: controller.signal });
+        clearTimeout(timer);
+        if (resp.ok) {
+            goToServer(ip, '3000', pendingAction);
+            return;
+        }
+    } catch(e) { /* failed */ }
+
+    connectBtn.textContent = t('connect_btn');
+    connectBtn.disabled = false;
+    const el = document.getElementById('connect-status');
+    el.textContent = t('connect_error');
+    el.style.display = 'block';
+    el.style.color = '#FF3B30';
+    el.style.background = 'rgba(255,59,48,0.08)';
+    el.style.border = '1px solid rgba(255,59,48,0.2)';
 }
 
 // ─── EVENTS ───
@@ -232,7 +278,12 @@ document.getElementById('btn-lang').addEventListener('click', () => setLanguage(
 document.getElementById('btn-refresh').addEventListener('click', () => window.location.reload());
 document.getElementById('btn-choice-send').addEventListener('click', () => handleActionClick('send'));
 document.getElementById('btn-choice-receive').addEventListener('click', () => handleActionClick('receive'));
-document.getElementById('btn-back').addEventListener('click', () => { hideStatus(); showScreen('screen-choice'); });
+document.getElementById('btn-back').addEventListener('click', () => {
+    if (window.AndroidHost && typeof window.AndroidHost.stopDiscovery === 'function') {
+        window.AndroidHost.stopDiscovery();
+    }
+    showScreen('screen-choice');
+});
 document.getElementById('btn-connect').addEventListener('click', handleManualConnect);
 document.getElementById('ip-input').addEventListener('keydown', e => { if (e.key === 'Enter') handleManualConnect(); });
 

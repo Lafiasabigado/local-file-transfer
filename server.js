@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { Bonjour } = require('bonjour-service');
 
 const UPLOADS_DIR = path.join(os.tmpdir(), 'localshare-uploads');
 const FILE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -149,6 +150,19 @@ function startServer(preferredPort = 3000) {
         console.log(`Server running at:`);
         console.log(`- Local:   http://localhost:${preferredPort}`);
         console.log(`- Network: http://${getLocalIp()}:${preferredPort}`);
+
+        // Publish mDNS service for mobile auto-discovery
+        try {
+            const bonjourInstance = new Bonjour();
+            bonjourInstance.publish({
+                name: 'LocalShare',
+                type: 'localshare',
+                port: preferredPort
+            });
+            console.log(`- mDNS:    _localshare._tcp published`);
+        } catch(e) {
+            console.warn('mDNS publish failed (non-critical):', e.message);
+        }
     });
 
     return preferredPort;

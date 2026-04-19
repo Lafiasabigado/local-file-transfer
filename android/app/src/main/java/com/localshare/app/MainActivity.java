@@ -6,9 +6,14 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.view.ViewGroup;
 import android.webkit.*;
 import android.widget.Toast;
@@ -23,10 +28,19 @@ import java.util.Enumeration;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "LocalShare";
     private WebView webView;
     private PermissionRequest pendingPermissionRequest;
     private static final int CAMERA_PERMISSION_CODE = 101;
     private static final String WELCOME_URL = "file:///android_asset/welcome.html";
+
+    // NSD (mDNS) discovery
+    private NsdManager nsdManager;
+    private NsdManager.DiscoveryListener discoveryListener;
+    private volatile String discoveredIp = "";
+    private volatile int discoveredPort = 3000;
+    private volatile boolean isDiscovering = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,24 +52,18 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(webView);
 
-        // Inject network helpers for auto-discovery
+        nsdManager = (NsdManager) getSystemService(Context.NSD_SERVICE);
         webView.addJavascriptInterface(new WebAppInterface(this), "AndroidHost");
-
         setupWebView();
-
-        // Load the local welcome page — same design as desktop
         webView.loadUrl(WELCOME_URL);
     }
 
+    // ─── JavaScript Bridge ───
     private class WebAppInterface {
         Context mContext;
         WebAppInterface(Context c) { mContext = c; }
 
-        /**
-         * Returns the device's own IPv4 address on any local network.
-         * Works for: Wi-Fi, hotspot (AP mode), USB tethering, Ethernet.
-         * Uses NetworkInterface enumeration — the most reliable method.
-         */
+        /** Get device's own IPv4 on any network (Wi-Fi, hotspot, tethering) */
         @android.webkit.JavascriptInterface
         public String getDeviceIp() {
             try {
@@ -63,33 +71,45 @@ public class MainActivity extends AppCompatActivity {
                 if (interfaces == null) return "";
                 while (interfaces.hasMoreElements()) {
                     NetworkInterface iface = interfaces.nextElement();
-                    // Skip loopback and inactive interfaces
                     if (iface.isLoopback() || !iface.isUp()) continue;
-                    // Skip purely virtual/docker interfaces but keep wlan, ap, eth, rndis, usb, swlan
                     String name = iface.getName().toLowerCase();
-                    if (name.startsWith("dummy") || name.startsWith("docker") || name.startsWith("br-")) continue;
-
+                    if (name.startsWith("dummy") || name.startsWith("docker")) continue;
                     Enumeration<InetAddress> addresses = iface.getInetAddresses();
                     while (addresses.hasMoreElements()) {
                         InetAddress addr = addresses.nextElement();
                         if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
                             String ip = addr.getHostAddress();
-                            if (ip != null && !ip.equals("127.0.0.1")) {
-                                return ip;
-                            }
+                            if (ip != null && !ip.equals("127.0.0.1")) return ip;
                         }
                     }
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            } catch (Exception e) { Log.e(TAG, "getDeviceIp error", e); }
             return "";
         }
 
-        /**
-         * Returns the Wi-Fi gateway IP (router IP).
-         * Useful when the phone is connected to a Wi-Fi network to find the server.
-         */
+        /** Start mDNS/NSD scan for _localshare._tcp service */
+        @android.webkit.JavascriptInterface
+        public void startDiscovery() {
+            discoveredIp = "";
+            discoveredPort = 3000;
+            stopDiscoverySafe();
+            startNsdDiscovery();
+        }
+
+        /** Stop ongoing discovery */
+        @android.webkit.JavascriptInterface
+        public void stopDiscovery() {
+            stopDiscoverySafe();
+        }
+
+        /** Returns "ip:port" if server found, empty string if still searching */
+        @android.webkit.JavascriptInterface
+        public String getDiscoveredServer() {
+            if (discoveredIp.isEmpty()) return "";
+            return discoveredIp + ":" + discoveredPort;
+        }
+
+        /** Get gateway IP (fallback for manual discovery) */
         @android.webkit.JavascriptInterface
         public String getGatewayIp() {
             try {
@@ -104,50 +124,87 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {}
             return "";
         }
+    }
 
-        /**
-         * Returns the network type: "wifi", "cellular", "ethernet", or "none".
-         */
-        @android.webkit.JavascriptInterface
-        public String getNetworkType() {
-            try {
-                ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
-                if (cm != null) {
-                    android.net.Network activeNetwork = cm.getActiveNetwork();
-                    if (activeNetwork != null) {
-                        NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
-                        if (caps != null) {
-                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "wifi";
-                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "cellular";
-                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet";
-                            return "other";
+    // ─── NSD (mDNS) Discovery ───
+    private void startNsdDiscovery() {
+        if (isDiscovering || nsdManager == null) return;
+
+        discoveryListener = new NsdManager.DiscoveryListener() {
+            @Override
+            public void onDiscoveryStarted(String serviceType) {
+                Log.d(TAG, "NSD discovery started: " + serviceType);
+                isDiscovering = true;
+            }
+
+            @Override
+            public void onServiceFound(NsdServiceInfo serviceInfo) {
+                Log.d(TAG, "NSD service found: " + serviceInfo.getServiceName());
+                if (serviceInfo.getServiceName().contains("LocalShare")) {
+                    nsdManager.resolveService(serviceInfo, new NsdManager.ResolveListener() {
+                        @Override
+                        public void onResolveFailed(NsdServiceInfo info, int errorCode) {
+                            Log.e(TAG, "NSD resolve failed: " + errorCode);
                         }
-                    }
+
+                        @Override
+                        public void onServiceResolved(NsdServiceInfo info) {
+                            InetAddress host = info.getHost();
+                            if (host != null) {
+                                discoveredIp = host.getHostAddress();
+                                discoveredPort = info.getPort();
+                                Log.d(TAG, "NSD resolved: " + discoveredIp + ":" + discoveredPort);
+                                stopDiscoverySafe();
+                            }
+                        }
+                    });
                 }
-            } catch (Exception e) {}
-            return "none";
-        }
+            }
 
-        /**
-         * Returns a JSON string with full network info.
-         * { "deviceIp": "192.168.1.5", "gatewayIp": "192.168.1.1", "networkType": "wifi", "connected": true }
-         */
-        @android.webkit.JavascriptInterface
-        public String getFullNetworkInfo() {
-            String deviceIp = getDeviceIp();
-            String gatewayIp = getGatewayIp();
-            String networkType = getNetworkType();
-            boolean connected = !deviceIp.isEmpty();
+            @Override
+            public void onServiceLost(NsdServiceInfo serviceInfo) {
+                Log.d(TAG, "NSD service lost: " + serviceInfo.getServiceName());
+            }
 
-            return "{" +
-                "\"deviceIp\":\"" + deviceIp + "\"," +
-                "\"gatewayIp\":\"" + gatewayIp + "\"," +
-                "\"networkType\":\"" + networkType + "\"," +
-                "\"connected\":" + connected +
-                "}";
+            @Override
+            public void onDiscoveryStopped(String serviceType) {
+                Log.d(TAG, "NSD discovery stopped");
+                isDiscovering = false;
+            }
+
+            @Override
+            public void onStartDiscoveryFailed(String serviceType, int errorCode) {
+                Log.e(TAG, "NSD start failed: " + errorCode);
+                isDiscovering = false;
+            }
+
+            @Override
+            public void onStopDiscoveryFailed(String serviceType, int errorCode) {
+                Log.e(TAG, "NSD stop failed: " + errorCode);
+                isDiscovering = false;
+            }
+        };
+
+        try {
+            nsdManager.discoverServices("_localshare._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+        } catch (Exception e) {
+            Log.e(TAG, "NSD discoverServices error", e);
+            isDiscovering = false;
         }
     }
 
+    private void stopDiscoverySafe() {
+        if (isDiscovering && discoveryListener != null && nsdManager != null) {
+            try {
+                nsdManager.stopServiceDiscovery(discoveryListener);
+            } catch (Exception e) {
+                Log.w(TAG, "stopDiscovery error (safe to ignore)", e);
+            }
+            isDiscovering = false;
+        }
+    }
+
+    // ─── WebView Setup ───
     private void setupWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -168,8 +225,7 @@ public class MainActivity extends AppCompatActivity {
                     pendingPermissionRequest = null;
                 } else {
                     ActivityCompat.requestPermissions(MainActivity.this,
-                            new String[]{Manifest.permission.CAMERA},
-                            CAMERA_PERMISSION_CODE);
+                            new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
                 }
             }
 
@@ -180,7 +236,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Handle file downloads (when receiver clicks "Download" button)
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             try {
                 String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
@@ -198,24 +253,22 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // On page errors (server unreachable), show a styled error with retry
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public void onReceivedError(WebView view, WebResourceRequest request,
-                    WebResourceError error) {
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
                     view.loadData(
                         "<html><body style='font-family:sans-serif;display:flex;flex-direction:column;" +
                         "align-items:center;justify-content:center;min-height:100vh;margin:0;" +
                         "background:#0d0f14;color:#f0f2f5;text-align:center;padding:24px;'>" +
                         "<h2 style='color:#FF3B30;font-size:20px;'>Cannot connect</h2>" +
-                        "<p style='color:#9ca3af;font-size:14px;line-height:1.6;max-width:280px;'>Make sure LocalShare is running on the PC and both devices are on the same Wi-Fi.</p>" +
+                        "<p style='color:#9ca3af;font-size:14px;line-height:1.6;max-width:280px;'>" +
+                        "Make sure LocalShare is running on the PC and both devices are on the same Wi-Fi.</p>" +
                         "<button onclick=\"window.location.href='" + WELCOME_URL + "'\" " +
                         "style='margin-top:24px;padding:14px 32px;border:none;border-radius:12px;" +
-                        "background:#0A84FF;color:white;font-size:15px;font-weight:600;cursor:pointer;'>Back to Home</button>" +
-                        "</body></html>",
-                        "text/html", "UTF-8"
-                    );
+                        "background:#0A84FF;color:white;font-size:15px;font-weight:600;cursor:pointer;'>" +
+                        "Back to Home</button></body></html>",
+                        "text/html", "UTF-8");
                 }
             }
         });
@@ -237,7 +290,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         String currentUrl = webView.getUrl();
-        // If we're on the remote web app, go back to local welcome
         if (currentUrl != null && !currentUrl.startsWith("file:///")) {
             webView.loadUrl(WELCOME_URL);
         } else if (webView.canGoBack()) {
@@ -245,5 +297,11 @@ public class MainActivity extends AppCompatActivity {
         } else {
             super.onBackPressed();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        stopDiscoverySafe();
+        super.onDestroy();
     }
 }
