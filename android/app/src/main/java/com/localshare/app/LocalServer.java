@@ -50,7 +50,7 @@ public class LocalServer extends NanoWSD {
 
         // CORS headers
         if (method == Method.OPTIONS) {
-            Response r = Response.newFixedLengthResponse(Status.OK, NanoHTTPD.MIME_PLAINTEXT, "");
+            Response r = newFixedLengthResponse(Status.OK, NanoHTTPD.MIME_PLAINTEXT, "");
             addCorsHeaders(r);
             return r;
         }
@@ -75,7 +75,7 @@ public class LocalServer extends NanoWSD {
                 String type = session.getParameters().get("type").get(0);
 
                 if (!sessions.containsKey(code)) {
-                    return Response.newFixedLengthResponse(Status.BAD_REQUEST, "application/json", "{\"error\":\"Invalid session\"}");
+                    return newFixedLengthResponse(Status.BAD_REQUEST, "application/json", "{\"error\":\"Invalid session\"}");
                 }
 
                 String tmpPath = files.get("file");
@@ -92,7 +92,7 @@ public class LocalServer extends NanoWSD {
                     fileData.put("path", destFile.getAbsolutePath());
 
                     sessions.get(code).files.add(fileData);
-                    broadcastToRoom(code, "files-updated", getFilesJsonArray(code));
+                    broadcastToRoom(code, "files-updated", getFilesJsonArray(code), null);
                     
                     JSONObject res = new JSONObject();
                     res.put("success", true);
@@ -123,7 +123,7 @@ public class LocalServer extends NanoWSD {
                             if (f.getString("id").equals(fileId)) {
                                 File file = new File(f.getString("path"));
                                 FileInputStream fis = new FileInputStream(file);
-                                Response r = Response.newChunkedResponse(Status.OK, "application/octet-stream", fis);
+                                Response r = newChunkedResponse(Status.OK, "application/octet-stream", fis);
                                 r.addHeader("Content-Disposition", "attachment; filename=\"" + f.getString("name") + "\"");
                                 addCorsHeaders(r);
                                 return r;
@@ -131,7 +131,7 @@ public class LocalServer extends NanoWSD {
                         }
                     }
                 }
-                return Response.newFixedLengthResponse(Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "File not found");
+                return newFixedLengthResponse(Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "File not found");
             }
 
             // STATIC FILES from assets/public/
@@ -140,25 +140,25 @@ public class LocalServer extends NanoWSD {
                 try {
                     InputStream is = context.getAssets().open("public/" + path);
                     String mimeType = getMimeType(path);
-                    Response r = Response.newChunkedResponse(Status.OK, mimeType, is);
+                    Response r = newChunkedResponse(Status.OK, mimeType, is);
                     return r;
                 } catch (IOException e) {
                     // Fallback to index.html for SPA routing
                     InputStream is = context.getAssets().open("public/index.html");
-                    return Response.newChunkedResponse(Status.OK, "text/html", is);
+                    return newChunkedResponse(Status.OK, "text/html", is);
                 }
             }
 
         } catch (Exception e) {
             Log.e(TAG, "Server error", e);
-            return Response.newFixedLengthResponse(Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, e.getMessage());
+            return newFixedLengthResponse(Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, e.getMessage());
         }
 
-        return Response.newFixedLengthResponse(Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "Not Found");
+        return newFixedLengthResponse(Status.NOT_FOUND, NanoHTTPD.MIME_PLAINTEXT, "Not Found");
     }
 
     private Response newJsonResponse(JSONObject obj) {
-        Response r = Response.newFixedLengthResponse(Status.OK, "application/json", obj.toString());
+        Response r = newFixedLengthResponse(Status.OK, "application/json", obj.toString());
         addCorsHeaders(r);
         return r;
     }
