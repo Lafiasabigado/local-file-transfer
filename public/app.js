@@ -71,6 +71,8 @@ const i18n = {
         files_ready: "file(s) ready",
         connected_dot: "Connected",
         downloading: "Downloading…",
+        download_success: "File saved to Downloads!",
+        download_fail: "Download failed.",
         done: "✓ Done",
         failed: "✗ Failed",
         no_transfers: "No transfers yet",
@@ -102,6 +104,8 @@ const i18n = {
         files_ready: "fichier(s) prêt(s)",
         connected_dot: "Connecté",
         downloading: "Téléchargement…",
+        download_success: "Fichier enregistré dans Téléchargements !",
+        download_fail: "Échec du téléchargement.",
         done: "✓ Terminé",
         failed: "✗ Échoué",
         no_transfers: "Aucun transfert pour le moment",
@@ -570,8 +574,27 @@ async function downloadFile(fileId, fileName, fileSize) {
         
         const key = await Crypto.importAESKey(Crypto.fromHex(aesMasterKeyStr));
         const dec = await Crypto.decrypt(key, enc);
+        const blob = new Blob([dec]);
         
-        const url = URL.createObjectURL(new Blob([dec]));
+        if (window.AndroidHost) {
+            // Android cannot download blob: URLs via DownloadManager. 
+            // Pass it to the local server to save.
+            const formData = new FormData();
+            formData.append('name', fileName);
+            formData.append('file', blob, fileName);
+            
+            await fetch('http://localhost:3000/api/save_local', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (btn) btn.textContent = t('download_success');
+            setTimeout(() => { if(btn) btn.textContent = t('done'); }, 3000);
+            saveHistory(fileName, fileSize, 'Received');
+            return;
+        }
+
+        const url = URL.createObjectURL(blob);
         const a = Object.assign(document.createElement('a'), { href:url, download:fileName });
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         URL.revokeObjectURL(url);
@@ -579,7 +602,8 @@ async function downloadFile(fileId, fileName, fileSize) {
         saveHistory(fileName, fileSize, 'Received');
     } catch(e) {
         console.error(e);
-        if (btn) btn.textContent = t('failed');
+        if (btn) btn.textContent = t('download_fail');
+        setTimeout(() => { if(btn) btn.textContent = t('failed'); }, 3000);
     }
 }
 

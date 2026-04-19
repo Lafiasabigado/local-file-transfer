@@ -63,6 +63,7 @@ public class LocalServer extends NanoWSD {
                 res.put("success", true);
                 res.put("code", code);
                 res.put("port", getListeningPort());
+                res.put("localIp", getDeviceIp());
                 return newJsonResponse(res);
             }
 
@@ -97,6 +98,43 @@ public class LocalServer extends NanoWSD {
                     JSONObject res = new JSONObject();
                     res.put("success", true);
                     res.put("files", getFilesJsonArray(code));
+                    return newJsonResponse(res);
+                }
+            }
+
+            if (uri.equals("/api/save_local") && method == Method.POST) {
+                Map<String, String> files = new HashMap<>();
+                session.parseBody(files);
+                String tmpPath = files.get("file");
+                String fileName = session.getParameters().get("name").get(0);
+
+                if (tmpPath != null) {
+                    File tmpFile = new File(tmpPath);
+                    File downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+                    if (!downloadsDir.exists()) downloadsDir.mkdirs();
+                    
+                    File destFile = new File(downloadsDir, fileName);
+                    int count = 1;
+                    while (destFile.exists()) {
+                        int dot = fileName.lastIndexOf('.');
+                        String name = dot > 0 ? fileName.substring(0, dot) : fileName;
+                        String ext = dot > 0 ? fileName.substring(dot) : "";
+                        destFile = new File(downloadsDir, name + " (" + count + ")" + ext);
+                        count++;
+                    }
+                    
+                    try (FileInputStream in = new FileInputStream(tmpFile);
+                         java.io.FileOutputStream out = new java.io.FileOutputStream(destFile)) {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, read);
+                        }
+                    }
+                    tmpFile.delete();
+
+                    JSONObject res = new JSONObject();
+                    res.put("success", true);
                     return newJsonResponse(res);
                 }
             }
@@ -177,6 +215,28 @@ public class LocalServer extends NanoWSD {
         if (path.endsWith(".ico")) return "image/x-icon";
         if (path.endsWith(".svg")) return "image/svg+xml";
         return NanoHTTPD.MIME_PLAINTEXT;
+    }
+
+    private String getDeviceIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            if (interfaces == null) return "";
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface iface = interfaces.nextElement();
+                if (iface.isLoopback() || !iface.isUp()) continue;
+                String name = iface.getName().toLowerCase();
+                if (name.startsWith("dummy") || name.startsWith("docker")) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (!addr.isLoopbackAddress() && addr instanceof java.net.Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip != null && !ip.equals("127.0.0.1")) return ip;
+                    }
+                }
+            }
+        } catch (Exception e) {}
+        return "";
     }
 
     private String generateCode() {
