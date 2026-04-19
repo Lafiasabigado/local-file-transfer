@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -13,6 +15,11 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -31,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(webView);
 
-        // Inject Gateway IP for auto-discovery
+        // Inject network helpers for auto-discovery
         webView.addJavascriptInterface(new WebAppInterface(this), "AndroidHost");
 
         setupWebView();
@@ -44,10 +51,50 @@ public class MainActivity extends AppCompatActivity {
         Context mContext;
         WebAppInterface(Context c) { mContext = c; }
 
+        /**
+         * Returns the device's own IPv4 address on any local network.
+         * Works for: Wi-Fi, hotspot (AP mode), USB tethering, Ethernet.
+         * Uses NetworkInterface enumeration — the most reliable method.
+         */
+        @android.webkit.JavascriptInterface
+        public String getDeviceIp() {
+            try {
+                Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+                if (interfaces == null) return "";
+                while (interfaces.hasMoreElements()) {
+                    NetworkInterface iface = interfaces.nextElement();
+                    // Skip loopback and inactive interfaces
+                    if (iface.isLoopback() || !iface.isUp()) continue;
+                    // Skip purely virtual/docker interfaces but keep wlan, ap, eth, rndis, usb, swlan
+                    String name = iface.getName().toLowerCase();
+                    if (name.startsWith("dummy") || name.startsWith("docker") || name.startsWith("br-")) continue;
+
+                    Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                    while (addresses.hasMoreElements()) {
+                        InetAddress addr = addresses.nextElement();
+                        if (!addr.isLoopbackAddress() && addr instanceof Inet4Address) {
+                            String ip = addr.getHostAddress();
+                            if (ip != null && !ip.equals("127.0.0.1")) {
+                                return ip;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            return "";
+        }
+
+        /**
+         * Returns the Wi-Fi gateway IP (router IP).
+         * Useful when the phone is connected to a Wi-Fi network to find the server.
+         */
         @android.webkit.JavascriptInterface
         public String getGatewayIp() {
             try {
-                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) mContext.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
+                        mContext.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
                 if (wm != null) {
                     android.net.DhcpInfo dhcp = wm.getDhcpInfo();
                     if (dhcp != null && dhcp.gateway != 0) {
@@ -56,6 +103,48 @@ public class MainActivity extends AppCompatActivity {
                 }
             } catch (Exception e) {}
             return "";
+        }
+
+        /**
+         * Returns the network type: "wifi", "cellular", "ethernet", or "none".
+         */
+        @android.webkit.JavascriptInterface
+        public String getNetworkType() {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    android.net.Network activeNetwork = cm.getActiveNetwork();
+                    if (activeNetwork != null) {
+                        NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
+                        if (caps != null) {
+                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "wifi";
+                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "cellular";
+                            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet";
+                            return "other";
+                        }
+                    }
+                }
+            } catch (Exception e) {}
+            return "none";
+        }
+
+        /**
+         * Returns a JSON string with full network info.
+         * { "deviceIp": "192.168.1.5", "gatewayIp": "192.168.1.1", "networkType": "wifi", "connected": true }
+         */
+        @android.webkit.JavascriptInterface
+        public String getFullNetworkInfo() {
+            String deviceIp = getDeviceIp();
+            String gatewayIp = getGatewayIp();
+            String networkType = getNetworkType();
+            boolean connected = !deviceIp.isEmpty();
+
+            return "{" +
+                "\"deviceIp\":\"" + deviceIp + "\"," +
+                "\"gatewayIp\":\"" + gatewayIp + "\"," +
+                "\"networkType\":\"" + networkType + "\"," +
+                "\"connected\":" + connected +
+                "}";
         }
     }
 

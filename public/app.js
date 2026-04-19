@@ -49,7 +49,7 @@ let aesMasterKeyStr    = null; // "NO-CRYPTO" if not supported
 let isSender           = false;
 let sessionFiles       = [];
 
-// ─── LOCALIZATION (FR/EN) ───
+// ─── LOCALIZATION (FR/EN) — COMPLETE ───
 const i18n = {
     EN: {
         send_title: "Send Files", send_desc: "Share with devices on this Wi-Fi",
@@ -59,7 +59,28 @@ const i18n = {
         connect_title: "Connect to Sender", connect_desc: "Enter the sender's IP address and the PIN shown on their screen",
         sender_ip: "SENDER'S IP ADDRESS", digit_pin: "6-DIGIT PIN CODE",
         connect_btn: "Connect", connected_status: "Connected to Session",
-        cancel_back: "← Cancel & Back", history_title: "Transfer History"
+        cancel_back: "← Cancel & Back", history_title: "Transfer History",
+        loading: "Loading…",
+        connecting: "Connecting…",
+        peer_connected: "Peer connected! Drop files",
+        peer_connected_drop: "Peer connected! Drop files",
+        failed_session: "Failed to create session",
+        sending: "Sending…",
+        sent: "✓ Sent",
+        error_upload: "✗ Error",
+        files_ready: "file(s) ready",
+        connected_dot: "Connected",
+        downloading: "Downloading…",
+        done: "✓ Done",
+        failed: "✗ Failed",
+        no_transfers: "No transfers yet",
+        no_session: "No active session.",
+        crypto_wait: "Secure connection in progress, please retry shortly.",
+        enter_pin: "⚠️ Enter the 6-digit PIN shown on the sender's screen.",
+        enter_ip: "⚠️ Enter the sender's IP address shown under their PIN.",
+        connect_success: "✓ Connected! Waiting for files…",
+        connect_fail: "⚠️ Cannot reach sender at {ip}. Make sure:\n• Both devices are on the same Wi-Fi\n• The IP address is correct",
+        back_menu: "← Back to Menu"
     },
     FR: {
         send_title: "Envoyer Fichiers", send_desc: "Partager sur ce Wi-Fi",
@@ -69,11 +90,45 @@ const i18n = {
         connect_title: "Se connecter", connect_desc: "Entrez l'IP de l'expéditeur et son code PIN",
         sender_ip: "ADRESSE IP EXPÉDITEUR", digit_pin: "CODE PIN À 6 CHIFFRES",
         connect_btn: "Connexion", connected_status: "Connecté à la session",
-        cancel_back: "← Retour", history_title: "Historique"
+        cancel_back: "← Retour", history_title: "Historique",
+        loading: "Chargement…",
+        connecting: "Connexion…",
+        peer_connected: "Appareil connecté ! Déposez vos fichiers",
+        peer_connected_drop: "Appareil connecté ! Déposez vos fichiers",
+        failed_session: "Échec de création de session",
+        sending: "Envoi…",
+        sent: "✓ Envoyé",
+        error_upload: "✗ Erreur",
+        files_ready: "fichier(s) prêt(s)",
+        connected_dot: "Connecté",
+        downloading: "Téléchargement…",
+        done: "✓ Terminé",
+        failed: "✗ Échoué",
+        no_transfers: "Aucun transfert pour le moment",
+        no_session: "Aucune session active.",
+        crypto_wait: "Connexion sécurisée en cours, veuillez réessayer dans un instant.",
+        enter_pin: "⚠️ Entrez le code PIN à 6 chiffres affiché sur l'écran de l'expéditeur.",
+        enter_ip: "⚠️ Entrez l'adresse IP de l'expéditeur affichée sous son code PIN.",
+        connect_success: "✓ Connecté ! En attente de fichiers…",
+        connect_fail: "⚠️ Impossible de joindre l'expéditeur à {ip}. Vérifiez :\n• Les deux appareils sont sur le même Wi-Fi\n• L'adresse IP est correcte",
+        back_menu: "← Retour au menu"
     }
 };
 
+// Helper: get translated string
+function t(key) {
+    return (i18n[currentLang] && i18n[currentLang][key]) || (i18n['EN'] && i18n['EN'][key]) || key;
+}
+
+// Detect language from URL hash (passed by mobile welcome.html across origins)
 let currentLang = localStorage.getItem('lang') || 'EN';
+if (window.location.hash) {
+    const hp = new URLSearchParams(window.location.hash.slice(1));
+    const hashLang = hp.get('lang');
+    if (hashLang && (hashLang === 'FR' || hashLang === 'EN')) {
+        currentLang = hashLang;
+    }
+}
 document.getElementById('lang-text').innerText = currentLang;
 
 function setLanguage(lang) {
@@ -82,7 +137,7 @@ function setLanguage(lang) {
     document.getElementById('lang-text').innerText = lang;
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (i18n[lang][key]) el.textContent = i18n[lang][key];
+        if (i18n[lang] && i18n[lang][key]) el.textContent = i18n[lang][key];
     });
 }
 setLanguage(currentLang);
@@ -162,7 +217,7 @@ function setupSocketListeners(sock) {
     sock.on('peer-joined', () => {
         if (isSender) {
             document.querySelector('.session-info').style.display = 'none';
-            document.querySelector('#drop-zone h3').textContent = currentLang === 'EN' ? 'Peer connected! Drop files' : 'Appareil connecté! Déposez vos fichiers';
+            document.querySelector('#drop-zone h3').textContent = t('peer_connected');
             document.getElementById('drop-zone').classList.add('active-peer');
         }
     });
@@ -273,7 +328,7 @@ async function init() {
 btnSend.addEventListener('click', async () => {
     isSender = true;
     btnSend.disabled = true;
-    btnSend.querySelector('h2').textContent = 'Loading…';
+    btnSend.querySelector('h2').textContent = t('loading');
     try {
         const res  = await fetch('/api/session');
         const data = await res.json();
@@ -287,11 +342,11 @@ btnSend.addEventListener('click', async () => {
         socket.emit('join-session', currentSessionCode);
         ui.showScreen('screen-send');
     } catch(e) {
-        alert('Failed to create session: ' + e.message);
-        btnSend.querySelector('h2').textContent = 'Send Files';
+        alert(t('failed_session') + ': ' + e.message);
+        btnSend.querySelector('h2').textContent = t('send_title');
     } finally {
         btnSend.disabled = false;
-        btnSend.querySelector('h2').textContent = 'Send Files';
+        btnSend.querySelector('h2').textContent = t('send_title');
     }
 });
 
@@ -303,8 +358,8 @@ btnConnect.addEventListener('click', async () => {
     const ip   = document.getElementById('ip-input').value.trim();
     clearStatus();
 
-    if (code.length !== 6) { showStatus('⚠️ Enter the 6-digit PIN shown on the sender\'s screen.', 'error'); return; }
-    if (!ip)               { showStatus('⚠️ Enter the sender\'s IP address shown under their PIN.', 'error'); return; }
+    if (code.length !== 6) { showStatus(t('enter_pin'), 'error'); return; }
+    if (!ip)               { showStatus(t('enter_ip'), 'error'); return; }
 
     setConnectLoading(true);
     currentSessionCode = code;
@@ -312,17 +367,17 @@ btnConnect.addEventListener('click', async () => {
 
     try {
         await connectToServer(ip);
-        showStatus('✓ Connected! Waiting for files…', 'success');
+        showStatus(t('connect_success'), 'success');
         setTimeout(() => finishJoin(code), 300);
     } catch(e) {
         setConnectLoading(false);
-        showStatus(`⚠️ Cannot reach sender at ${ip}. Make sure:\n• Both devices are on the same Wi-Fi\n• The IP address is correct`, 'error');
+        showStatus(t('connect_fail').replace('{ip}', ip), 'error');
     }
 });
 
 function setConnectLoading(loading) {
     btnConnect.disabled = loading;
-    btnConnect.textContent = loading ? 'Connecting…' : 'Connect';
+    btnConnect.textContent = loading ? t('connecting') : t('connect_btn');
 }
 
 function finishJoin(code) {
@@ -415,7 +470,7 @@ fileInput.addEventListener('change', function() {
 });
 
 async function handleFiles(files) {
-    if (!currentSessionCode || !aesMasterKeyStr) { alert('No active session.'); return; }
+    if (!currentSessionCode || !aesMasterKeyStr) { alert(t('no_session')); return; }
     document.getElementById('sender-file-list').classList.remove('hidden');
 
     const aesKey = (aesMasterKeyStr !== 'NO-CRYPTO' && Crypto.isSupported()) 
@@ -425,7 +480,7 @@ async function handleFiles(files) {
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const id = `up-${Date.now()}-${i}`;
-        addFileToList('sender-file-list', id, file.name, file.size, '<span style="color:var(--text-muted)">Sending…</span>');
+        addFileToList('sender-file-list', id, file.name, file.size, `<span style="color:var(--text-muted)">${t('sending')}</span>`);
 
         try {
             const form = new FormData();
@@ -442,11 +497,11 @@ async function handleFiles(files) {
             }
 
             await fetch('/api/upload', { method:'POST', body:form });
-            setFileStatus(id, '<span style="color:var(--success)">✓ Sent</span>');
+            setFileStatus(id, `<span style="color:var(--success)">${t('sent')}</span>`);
             saveHistory(file.name, file.size, 'Sent');
         } catch(e) {
             console.error(e);
-            setFileStatus(id, '<span style="color:var(--danger)">✗ Error</span>');
+            setFileStatus(id, `<span style="color:var(--danger)">${t('error_upload')}</span>`);
         }
     }
 }
@@ -455,7 +510,7 @@ async function handleFiles(files) {
 function renderFileList() {
     if (isSender) return;
     const list = document.getElementById('receiver-file-list');
-    list.innerHTML = `<div class="connection-status"><span class="status-dot online"></span> Connected · ${sessionFiles.length} file(s) ready</div>`;
+    list.innerHTML = `<div class="connection-status"><span class="status-dot online"></span> ${t('connected_dot')} · ${sessionFiles.length} ${t('files_ready')}</div>`;
     sessionFiles.forEach(f => {
         addFileToList('receiver-file-list', `dl-${f.id}`, f.name, f.size,
             `<button onclick="downloadFile('${f.id}','${f.name}',${f.size})">Download</button>`);
@@ -463,7 +518,7 @@ function renderFileList() {
 }
 
 async function downloadFile(fileId, fileName, fileSize) {
-    if (!aesMasterKeyStr) { alert('Connexion sécurité en cours, veuillez réessayer dans un instant.'); return; }
+    if (!aesMasterKeyStr) { alert(t('crypto_wait')); return; }
     const btn = document.querySelector(`#dl-${fileId} button`);
     
     // If NO encryption is used, we can just trigger native high-speed browser download
@@ -473,13 +528,13 @@ async function downloadFile(fileId, fileName, fileSize) {
             download: fileName 
         });
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        if (btn) btn.textContent = '✓ Done';
+        if (btn) btn.textContent = t('done');
         saveHistory(fileName, fileSize, 'Received');
         return;
     }
 
     // E2E Encrypted download
-    if (btn) btn.textContent = 'Downloading…';
+    if (btn) btn.textContent = t('downloading');
     try {
         const res = await fetch(`${API_BASE}/api/download/${currentSessionCode}/${fileId}`);
         const enc = await (await res.blob()).arrayBuffer();
@@ -491,11 +546,11 @@ async function downloadFile(fileId, fileName, fileSize) {
         const a = Object.assign(document.createElement('a'), { href:url, download:fileName });
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        if (btn) btn.textContent = '✓ Done';
+        if (btn) btn.textContent = t('done');
         saveHistory(fileName, fileSize, 'Received');
     } catch(e) {
         console.error(e);
-        if (btn) btn.textContent = '✗ Failed';
+        if (btn) btn.textContent = t('failed');
     }
 }
 
@@ -530,7 +585,7 @@ btnHistory.addEventListener('click', () => {
     const list = document.getElementById('history-list');
     list.innerHTML = '';
     if (!h.length) {
-        list.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;font-size:14px">No transfers yet</p>';
+        list.innerHTML = `<p style="color:var(--text-secondary);text-align:center;padding:40px 0;font-size:14px">${t('no_transfers')}</p>`;
         return;
     }
     h.forEach((item, i) => addFileToList('history-list', `hist-${i}`, item.name, item.size,

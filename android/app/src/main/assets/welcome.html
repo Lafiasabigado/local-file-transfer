@@ -40,6 +40,9 @@
             <!-- Screen 1: Home — Send / Receive (same as desktop) -->
             <div id="screen-choice" class="screen view-active">
                 <div class="split-choices">
+                    <!-- Network status badge -->
+                    <div id="network-badge" style="text-align:center;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;margin-bottom:4px;"></div>
+
                     <button id="btn-choice-send" class="choice-card primary">
                         <div class="icon-pulse">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
@@ -61,15 +64,29 @@
             <!-- Screen 2: Connect to Server (appears when clicking Send OR Receive) -->
             <div id="screen-connect" class="screen flex-col">
                 <div class="receive-form">
-                    <h3 id="connect-heading">Connect to PC</h3>
-                    <p class="receive-subtitle" id="connect-subtitle">Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.</p>
-                    <div class="input-group">
-                        <label class="input-label">IP ADDRESS</label>
+                    <h3 id="connect-heading" data-i18n="connect_pc">Connect to PC</h3>
+                    <p class="receive-subtitle" id="connect-subtitle" data-i18n="connect_pc_sub">Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.</p>
+                    <div class="input-group" id="ip-input-group">
+                        <label class="input-label" data-i18n="ip_address_label">IP ADDRESS</label>
                         <input type="text" id="ip-input" placeholder="e.g. 192.168.1.42" autocomplete="off" autocorrect="off" autocapitalize="none">
                     </div>
-                    <button id="btn-connect" class="action-btn">Connect</button>
+                    <button id="btn-connect" class="action-btn" data-i18n="connect_btn">Connect</button>
+                    <p id="connect-status" style="font-size:13px;line-height:1.6;margin-top:12px;padding:12px;border-radius:10px;display:none;"></p>
                 </div>
-                <button class="back-link" id="btn-back">← Back</button>
+                <button class="back-link" id="btn-back" data-i18n="back_btn">← Back</button>
+            </div>
+
+            <!-- Screen 3: No Network -->
+            <div id="screen-no-network" class="screen flex-col" style="align-items:center;justify-content:center;text-align:center;">
+                <div style="padding:20px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#FF3B30" stroke-width="1.5" style="width:64px;height:64px;margin-bottom:20px;opacity:0.8;">
+                        <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
+                    </svg>
+                    <h3 id="no-net-title" style="color:#FF3B30;font-size:20px;font-weight:700;margin-bottom:12px;" data-i18n="no_network_title">No Network Detected</h3>
+                    <p id="no-net-desc" style="color:var(--text-secondary);font-size:14px;line-height:1.6;max-width:280px;margin:0 auto;" data-i18n="no_network_desc">You are not connected to any network. Connect to Wi-Fi or enable a hotspot to transfer files.</p>
+                    <button class="action-btn" style="margin-top:24px;max-width:200px;margin-left:auto;margin-right:auto;" onclick="window.location.reload();" data-i18n="retry_btn">Retry</button>
+                </div>
+                <button class="back-link" onclick="showScreen('screen-choice');" data-i18n="back_btn">← Back</button>
             </div>
 
         </main>
@@ -80,36 +97,76 @@
 let currentLang = localStorage.getItem('lang') || 'EN';
 let pendingAction = null; // 'send' or 'receive'
 
-// ─── i18n ───
+// ─── COMPLETE i18n DICTIONARY ───
 const i18n = {
     EN: {
-        send_title: "Send Files", send_desc: "Share with devices on this Wi-Fi",
-        recv_title: "Receive Files", recv_desc: "Enter a code",
-        no_network: "You are not connected to any Wi-Fi network. Please connect to the same network as the other device to transfer files.",
+        send_title: "Send Files",
+        send_desc: "Share with devices on this Wi-Fi",
+        recv_title: "Receive Files",
+        recv_desc: "Enter a code",
+        connect_pc: "Connect to PC",
+        connect_pc_sub: "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.",
         connect_send_heading: "Connect to network",
         connect_send_sub: "Enter the IP address of the device running LocalShare. Your phone will create a session and display the PIN code for the other device.",
         connect_recv_heading: "Connect to sender",
         connect_recv_sub: "Enter the IP address shown on the sender's LocalShare screen. Both devices must be on the same Wi-Fi.",
+        ip_address_label: "IP ADDRESS",
+        connect_btn: "Connect",
+        connecting_btn: "Connecting…",
+        back_btn: "← Back",
+        no_network_title: "No Network Detected",
+        no_network_desc: "You are not connected to any network. Connect to Wi-Fi or enable a hotspot to transfer files.",
+        retry_btn: "Retry",
+        net_badge_connected: "Connected",
+        net_badge_ip: "Your IP",
+        net_badge_none: "No network",
+        net_badge_cellular: "Mobile data only — no local transfer possible",
+        connect_error: "Cannot reach server at this address. Check that LocalShare is running on the PC and both devices are on the same network.",
+        auto_connecting: "Server found! Connecting…",
     },
     FR: {
-        send_title: "Envoyer Fichiers", send_desc: "Partager sur ce Wi-Fi",
-        recv_title: "Recevoir Fichiers", recv_desc: "Saisir le code",
-        no_network: "Vous n'êtes connecté à aucun réseau Wi-Fi. Veuillez vous connecter au même réseau que l'autre appareil pour effectuer le transfert.",
+        send_title: "Envoyer Fichiers",
+        send_desc: "Partager sur ce Wi-Fi",
+        recv_title: "Recevoir Fichiers",
+        recv_desc: "Saisir le code",
+        connect_pc: "Se connecter au PC",
+        connect_pc_sub: "Entrez l'adresse IP affichée sur l'écran LocalShare de l'expéditeur. Les deux appareils doivent être sur le même Wi-Fi.",
         connect_send_heading: "Se connecter au réseau",
         connect_send_sub: "Entrez l'adresse IP de l'appareil qui exécute LocalShare. Votre téléphone créera une session et affichera le code PIN.",
         connect_recv_heading: "Se connecter à l'expéditeur",
         connect_recv_sub: "Entrez l'adresse IP affichée sur l'écran LocalShare de l'expéditeur. Les deux appareils doivent être sur le même Wi-Fi.",
+        ip_address_label: "ADRESSE IP",
+        connect_btn: "Connexion",
+        connecting_btn: "Connexion…",
+        back_btn: "← Retour",
+        no_network_title: "Aucun réseau détecté",
+        no_network_desc: "Vous n'êtes connecté à aucun réseau. Connectez-vous au Wi-Fi ou activez un partage de connexion pour transférer des fichiers.",
+        retry_btn: "Réessayer",
+        net_badge_connected: "Connecté",
+        net_badge_ip: "Votre IP",
+        net_badge_none: "Aucun réseau",
+        net_badge_cellular: "Données mobiles uniquement — transfert local impossible",
+        connect_error: "Impossible de joindre le serveur à cette adresse. Vérifiez que LocalShare est lancé sur le PC et que les deux appareils sont sur le même réseau.",
+        auto_connecting: "Serveur trouvé ! Connexion…",
     }
 };
+
+// ─── TRANSLATION FUNCTION ───
+function t(key) {
+    return (i18n[currentLang] && i18n[currentLang][key]) || (i18n['EN'] && i18n['EN'][key]) || key;
+}
 
 function setLanguage(lang) {
     currentLang = lang;
     localStorage.setItem('lang', lang);
     document.getElementById('lang-text').innerText = lang;
+    // Update all static data-i18n elements
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
         if (i18n[lang] && i18n[lang][key]) el.textContent = i18n[lang][key];
     });
+    // Update dynamic content
+    updateNetworkBadge();
 }
 
 // ─── THEME ───
@@ -134,70 +191,204 @@ function showScreen(id) {
     document.getElementById(id).classList.add('view-active');
 }
 
-// ─── NETWORK CHECK & AUTO DISCOVERY ───
-function checkNetwork() {
-    if (!navigator.onLine) {
-        document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Pas de réseau' : 'No Network';
-        document.getElementById('connect-subtitle').textContent = i18n[currentLang].no_network;
-        document.getElementById('connect-subtitle').style.color = '#FF3B30';
-        document.getElementById('ip-input').style.display = 'none';
-        document.getElementById('btn-connect').style.display = 'none';
-        document.querySelector('#screen-connect .input-group').style.display = 'none';
-        showScreen('screen-connect');
-        return false;
+// ─── NETWORK DETECTION (100% reliable via Android bridge) ───
+function getNetworkInfo() {
+    if (window.AndroidHost && typeof window.AndroidHost.getFullNetworkInfo === 'function') {
+        try {
+            return JSON.parse(window.AndroidHost.getFullNetworkInfo());
+        } catch(e) {}
     }
-    // Reset styles
-    document.getElementById('connect-subtitle').style.color = '';
-    document.getElementById('ip-input').style.display = '';
-    document.getElementById('btn-connect').style.display = '';
-    document.querySelector('#screen-connect .input-group').style.display = '';
-    return true;
+    // Fallback for non-Android (testing in browser)
+    return {
+        deviceIp: '',
+        gatewayIp: '',
+        networkType: navigator.onLine ? 'unknown' : 'none',
+        connected: navigator.onLine
+    };
 }
 
-// Check an IP silently to see if LocalShare PC is running there
+function updateNetworkBadge() {
+    const badge = document.getElementById('network-badge');
+    if (!badge) return;
+    const info = getNetworkInfo();
+
+    if (!info.connected || !info.deviceIp) {
+        if (info.networkType === 'cellular') {
+            badge.textContent = t('net_badge_cellular');
+            badge.style.cssText = 'text-align:center;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;margin-bottom:4px;color:#FF9500;background:rgba(255,149,0,0.1);border:1px solid rgba(255,149,0,0.2);';
+        } else {
+            badge.textContent = '⚠ ' + t('net_badge_none');
+            badge.style.cssText = 'text-align:center;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;margin-bottom:4px;color:#FF3B30;background:rgba(255,59,48,0.08);border:1px solid rgba(255,59,48,0.15);';
+        }
+    } else {
+        badge.textContent = '✓ ' + t('net_badge_connected') + '  •  ' + t('net_badge_ip') + ': ' + info.deviceIp;
+        badge.style.cssText = 'text-align:center;padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;margin-bottom:4px;color:#34C759;background:rgba(52,199,89,0.08);border:1px solid rgba(52,199,89,0.15);';
+    }
+}
+
+// ─── SERVER PING (reliable via fetch with timeout) ───
 function pingServer(ip) {
     return new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve(false), 800);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => { controller.abort(); resolve(false); }, 2000);
+
+        fetch('http://' + ip + ':3000/api/session', {
+            method: 'HEAD',
+            mode: 'no-cors',
+            signal: controller.signal
+        })
+        .then(() => { clearTimeout(timeout); resolve(true); })
+        .catch(() => { clearTimeout(timeout); resolve(false); });
+    });
+}
+
+// More reliable ping using image load
+function pingServerImg(ip) {
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve(false), 1500);
         const img = new Image();
         img.onload = () => { clearTimeout(timeout); resolve(true); };
-        img.onerror = () => { clearTimeout(timeout); resolve(true); }; // usually ok if resolving the port
+        img.onerror = () => { clearTimeout(timeout); resolve(true); }; // onerror still means host is reachable
         img.src = 'http://' + ip + ':3000/icon.png?' + Date.now();
     });
 }
 
+// Try multiple ping methods
+async function isServerReachable(ip) {
+    // Try fetch first (faster)
+    const r1 = await pingServer(ip);
+    if (r1) return true;
+    // Fallback to image ping
+    return await pingServerImg(ip);
+}
+
+// ─── CONNECT STATUS ───
+function showConnectStatus(msg, type) {
+    const el = document.getElementById('connect-status');
+    el.textContent = msg;
+    el.style.display = 'block';
+    el.style.color = type === 'error' ? '#FF3B30' : '#34C759';
+    el.style.background = type === 'error' ? 'rgba(255,59,48,0.08)' : 'rgba(52,199,89,0.08)';
+    el.style.border = '1px solid ' + (type === 'error' ? 'rgba(255,59,48,0.2)' : 'rgba(52,199,89,0.2)');
+}
+
+function hideConnectStatus() {
+    document.getElementById('connect-status').style.display = 'none';
+}
+
+// ─── MAIN ACTION HANDLER ───
 async function handleActionClick(actionType) {
-    if (!checkNetwork()) return;
+    const info = getNetworkInfo();
     pendingAction = actionType;
-    
-    // Change UI to loading state temporarily
-    const btn = actionType === 'send' ? document.getElementById('btn-choice-send') : document.getElementById('btn-choice-receive');
-    const oldText = btn.querySelector('h2').textContent;
-    btn.querySelector('h2').textContent = 'Connecting...';
-    
-    // Try auto-discovery
-    let targetIp = localStorage.getItem('last_ip');
-    
-    // If not found or if we want to prioritize hotspot gateway:
-    const gateway = window.AndroidHost ? window.AndroidHost.getGatewayIp() : null;
-    if (gateway && gateway !== "0.0.0.0") {
-        targetIp = gateway; // Prioritize Gateway (if phone is connected to PC Hotspot)
+
+    // If no network at all, show the no-network screen
+    if (!info.connected || !info.deviceIp) {
+        if (info.networkType === 'cellular') {
+            // Cellular only — can't do local transfer
+            showScreen('screen-no-network');
+            document.getElementById('no-net-title').textContent = t('net_badge_cellular');
+            document.getElementById('no-net-desc').textContent = t('no_network_desc');
+        } else {
+            showScreen('screen-no-network');
+        }
+        return;
     }
 
-    if (targetIp) {
-        const cleanIp = targetIp.replace('http://', '').replace('https://', '').trim();
-        const serverExists = await pingServer(cleanIp);
-        if (serverExists) {
-            localStorage.setItem('last_ip', cleanIp);
-            window.location.href = 'http://' + cleanIp + ':3000/#automode=' + pendingAction;
-            return;
+    // We have a network IP — try auto-discovery
+    const btn = actionType === 'send' ? document.getElementById('btn-choice-send') : document.getElementById('btn-choice-receive');
+    const oldH2 = btn.querySelector('h2').textContent;
+    btn.querySelector('h2').textContent = t('connecting_btn');
+    btn.disabled = true;
+
+    // Build candidate IPs to try
+    const candidates = [];
+
+    // 1. Last known working IP
+    const lastIp = localStorage.getItem('last_ip');
+    if (lastIp) candidates.push(lastIp);
+
+    // 2. Gateway IP (router — useful when both on same Wi-Fi)
+    if (info.gatewayIp && info.gatewayIp !== '0.0.0.0' && info.gatewayIp !== info.deviceIp) {
+        if (!candidates.includes(info.gatewayIp)) candidates.push(info.gatewayIp);
+    }
+
+    // 3. If phone is hotspot (phone IP usually 192.168.43.1 or 192.168.x.1), try scanning first few IPs
+    if (info.deviceIp) {
+        const parts = info.deviceIp.split('.');
+        if (parts.length === 4) {
+            const subnet = parts[0] + '.' + parts[1] + '.' + parts[2] + '.';
+            // Try common PC IPs on the subnet
+            for (let i = 2; i <= 10; i++) {
+                const candidate = subnet + i;
+                if (candidate !== info.deviceIp && !candidates.includes(candidate)) {
+                    candidates.push(candidate);
+                }
+            }
         }
     }
-    
-    // Auto-discovery failed or no IP known -> show manual IP input screen
-    btn.querySelector('h2').textContent = oldText;
-    document.getElementById('connect-heading').textContent = i18n[currentLang]['connect_' + pendingAction + '_heading'] || 'Connect to PC';
-    document.getElementById('connect-subtitle').textContent = i18n[currentLang]['connect_' + pendingAction + '_sub'] || 'Enter the IP address of the PC.';
+
+    // Try each candidate
+    let foundIp = null;
+    for (const ip of candidates) {
+        const reachable = await isServerReachable(ip);
+        if (reachable) {
+            foundIp = ip;
+            break;
+        }
+    }
+
+    btn.querySelector('h2').textContent = oldH2;
+    btn.disabled = false;
+
+    if (foundIp) {
+        // Server found! Navigate to it
+        localStorage.setItem('last_ip', foundIp);
+        window.location.href = 'http://' + foundIp + ':3000/#automode=' + pendingAction + '&lang=' + currentLang;
+        return;
+    }
+
+    // Auto-discovery failed — show manual IP input screen
+    hideConnectStatus();
+    document.getElementById('connect-heading').textContent = t('connect_' + pendingAction + '_heading');
+    document.getElementById('connect-subtitle').textContent = t('connect_' + pendingAction + '_sub');
+    // Show all input elements (in case they were hidden)
+    document.getElementById('ip-input-group').style.display = '';
+    document.getElementById('btn-connect').style.display = '';
+    document.getElementById('btn-connect').textContent = t('connect_btn');
+    document.getElementById('btn-connect').disabled = false;
     showScreen('screen-connect');
+}
+
+// ─── MANUAL CONNECT ───
+async function handleManualConnect() {
+    const ip = document.getElementById('ip-input').value.trim();
+    if (!ip) {
+        document.getElementById('ip-input').style.borderColor = '#FF3B30';
+        return;
+    }
+    document.getElementById('ip-input').style.borderColor = '';
+
+    const connectBtn = document.getElementById('btn-connect');
+    connectBtn.textContent = t('connecting_btn');
+    connectBtn.disabled = true;
+    hideConnectStatus();
+
+    const cleanIp = ip.replace('http://', '').replace('https://', '').replace(/:\d+$/, '').trim();
+
+    // Test if server is reachable
+    const reachable = await isServerReachable(cleanIp);
+
+    if (reachable) {
+        localStorage.setItem('last_ip', cleanIp);
+        showConnectStatus(t('auto_connecting'), 'success');
+        setTimeout(() => {
+            window.location.href = 'http://' + cleanIp + ':3000/#automode=' + pendingAction + '&lang=' + currentLang;
+        }, 300);
+    } else {
+        connectBtn.textContent = t('connect_btn');
+        connectBtn.disabled = false;
+        showConnectStatus(t('connect_error'), 'error');
+    }
 }
 
 // ─── EVENT LISTENERS ───
@@ -217,28 +408,28 @@ document.getElementById('btn-choice-send').addEventListener('click', () => handl
 document.getElementById('btn-choice-receive').addEventListener('click', () => handleActionClick('receive'));
 
 document.getElementById('btn-back').addEventListener('click', () => {
+    hideConnectStatus();
     showScreen('screen-choice');
 });
 
-document.getElementById('btn-connect').addEventListener('click', () => {
-    const ip = document.getElementById('ip-input').value.trim();
-    if (!ip) {
-        document.getElementById('ip-input').style.borderColor = '#FF3B30';
-        return;
-    }
-    localStorage.setItem('last_ip', ip);
-    const cleanIp = ip.replace('http://', '').replace('https://', '').trim();
-    const base = cleanIp.includes(':') ? 'http://' + cleanIp : 'http://' + cleanIp + ':3000';
-    window.location.href = base + '/#automode=' + pendingAction;
+document.getElementById('btn-connect').addEventListener('click', handleManualConnect);
+
+// Allow Enter key in IP input
+document.getElementById('ip-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleManualConnect();
 });
 
+// ─── INIT ───
 // Restore last IP
 const lastIp = localStorage.getItem('last_ip');
 if (lastIp) document.getElementById('ip-input').value = lastIp;
 
-// Init language
+// Init language & apply to all elements
 document.getElementById('lang-text').innerText = currentLang;
 setLanguage(currentLang);
+
+// Show network status on load
+updateNetworkBadge();
 </script>
 </body>
 </html>
