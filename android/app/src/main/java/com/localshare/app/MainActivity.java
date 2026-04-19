@@ -31,10 +31,32 @@ public class MainActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(webView);
 
+        // Inject Gateway IP for auto-discovery
+        webView.addJavascriptInterface(new WebAppInterface(this), "AndroidHost");
+
         setupWebView();
 
         // Load the local welcome page — same design as desktop
         webView.loadUrl(WELCOME_URL);
+    }
+
+    private class WebAppInterface {
+        Context mContext;
+        WebAppInterface(Context c) { mContext = c; }
+
+        @android.webkit.JavascriptInterface
+        public String getGatewayIp() {
+            try {
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) mContext.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                if (wm != null) {
+                    android.net.DhcpInfo dhcp = wm.getDhcpInfo();
+                    if (dhcp != null && dhcp.gateway != 0) {
+                        return android.text.format.Formatter.formatIpAddress(dhcp.gateway);
+                    }
+                }
+            } catch (Exception e) {}
+            return "";
+        }
     }
 
     private void setupWebView() {

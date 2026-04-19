@@ -134,12 +134,11 @@ function showScreen(id) {
     document.getElementById(id).classList.add('view-active');
 }
 
-// ─── NETWORK CHECK ───
+// ─── NETWORK CHECK & AUTO DISCOVERY ───
 function checkNetwork() {
     if (!navigator.onLine) {
-        const msg = i18n[currentLang].no_network;
         document.getElementById('connect-heading').textContent = currentLang === 'FR' ? 'Pas de réseau' : 'No Network';
-        document.getElementById('connect-subtitle').textContent = msg;
+        document.getElementById('connect-subtitle').textContent = i18n[currentLang].no_network;
         document.getElementById('connect-subtitle').style.color = '#FF3B30';
         document.getElementById('ip-input').style.display = 'none';
         document.getElementById('btn-connect').style.display = 'none';
@@ -147,12 +146,58 @@ function checkNetwork() {
         showScreen('screen-connect');
         return false;
     }
-    // Reset styles if online
+    // Reset styles
     document.getElementById('connect-subtitle').style.color = '';
     document.getElementById('ip-input').style.display = '';
     document.getElementById('btn-connect').style.display = '';
     document.querySelector('#screen-connect .input-group').style.display = '';
     return true;
+}
+
+// Check an IP silently to see if LocalShare PC is running there
+function pingServer(ip) {
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve(false), 800);
+        const img = new Image();
+        img.onload = () => { clearTimeout(timeout); resolve(true); };
+        img.onerror = () => { clearTimeout(timeout); resolve(true); }; // usually ok if resolving the port
+        img.src = 'http://' + ip + ':3000/icon.png?' + Date.now();
+    });
+}
+
+async function handleActionClick(actionType) {
+    if (!checkNetwork()) return;
+    pendingAction = actionType;
+    
+    // Change UI to loading state temporarily
+    const btn = actionType === 'send' ? document.getElementById('btn-choice-send') : document.getElementById('btn-choice-receive');
+    const oldText = btn.querySelector('h2').textContent;
+    btn.querySelector('h2').textContent = 'Connecting...';
+    
+    // Try auto-discovery
+    let targetIp = localStorage.getItem('last_ip');
+    
+    // If not found or if we want to prioritize hotspot gateway:
+    const gateway = window.AndroidHost ? window.AndroidHost.getGatewayIp() : null;
+    if (gateway && gateway !== "0.0.0.0") {
+        targetIp = gateway; // Prioritize Gateway (if phone is connected to PC Hotspot)
+    }
+
+    if (targetIp) {
+        const cleanIp = targetIp.replace('http://', '').replace('https://', '').trim();
+        const serverExists = await pingServer(cleanIp);
+        if (serverExists) {
+            localStorage.setItem('last_ip', cleanIp);
+            window.location.href = 'http://' + cleanIp + ':3000/#automode=' + pendingAction;
+            return;
+        }
+    }
+    
+    // Auto-discovery failed or no IP known -> show manual IP input screen
+    btn.querySelector('h2').textContent = oldText;
+    document.getElementById('connect-heading').textContent = i18n[currentLang]['connect_' + pendingAction + '_heading'] || 'Connect to PC';
+    document.getElementById('connect-subtitle').textContent = i18n[currentLang]['connect_' + pendingAction + '_sub'] || 'Enter the IP address of the PC.';
+    showScreen('screen-connect');
 }
 
 // ─── EVENT LISTENERS ───
@@ -168,21 +213,8 @@ document.getElementById('btn-refresh').addEventListener('click', () => {
     window.location.reload();
 });
 
-document.getElementById('btn-choice-send').addEventListener('click', () => {
-    if (!checkNetwork()) return;
-    pendingAction = 'send';
-    document.getElementById('connect-heading').textContent = i18n[currentLang].connect_send_heading;
-    document.getElementById('connect-subtitle').textContent = i18n[currentLang].connect_send_sub;
-    showScreen('screen-connect');
-});
-
-document.getElementById('btn-choice-receive').addEventListener('click', () => {
-    if (!checkNetwork()) return;
-    pendingAction = 'receive';
-    document.getElementById('connect-heading').textContent = i18n[currentLang].connect_recv_heading;
-    document.getElementById('connect-subtitle').textContent = i18n[currentLang].connect_recv_sub;
-    showScreen('screen-connect');
-});
+document.getElementById('btn-choice-send').addEventListener('click', () => handleActionClick('send'));
+document.getElementById('btn-choice-receive').addEventListener('click', () => handleActionClick('receive'));
 
 document.getElementById('btn-back').addEventListener('click', () => {
     showScreen('screen-choice');
@@ -197,7 +229,6 @@ document.getElementById('btn-connect').addEventListener('click', () => {
     localStorage.setItem('last_ip', ip);
     const cleanIp = ip.replace('http://', '').replace('https://', '').trim();
     const base = cleanIp.includes(':') ? 'http://' + cleanIp : 'http://' + cleanIp + ':3000';
-    // Navigate to the real web app with automode so it goes straight to Send or Receive
     window.location.href = base + '/#automode=' + pendingAction;
 });
 
